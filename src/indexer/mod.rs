@@ -429,15 +429,19 @@ impl ProjectIndexer {
 
         // Store references
         let mut ref_count = 0;
-        for ref_rec in &result.references {
+       for ref_rec in &result.references {
+            let conf = ref_rec.confidence();
+            let is_dynamic = conf < 1.0;
             self.db.insert_reference(&crate::database::ReferenceRecord {
                 id: 0,
                 caller_file: relative.clone(),
-                callee_file: relative.clone(), // same-file reference (default)
+                callee_file: relative.clone(),
                 caller_symbol: ref_rec.caller_symbol.clone(),
                 callee_symbol: ref_rec.callee_symbol.clone(),
                 ref_kind: ref_rec.ref_kind.clone(),
                 line: ref_rec.line,
+                confidence: conf,
+                is_dynamic,
             })?;
             ref_count += 1;
         }

@@ -13,7 +13,7 @@ use rusqlite::Connection;
 use anyhow::Context;
 
 /// 현재 스키마 버전 (모노토닉 증가)
-pub const CURRENT_SCHEMA_VERSION: i32 = 3;
+pub const CURRENT_SCHEMA_VERSION: i32 = 4;
 
 /// Migration 001: Initial schema (기존 스키마 유지)
 const MIGRATION_001_INITIAL: &str = r#"
@@ -281,11 +281,22 @@ CREATE INDEX IF NOT EXISTS idx_overrides_caller ON overrides(caller_symbol);
 CREATE INDEX IF NOT EXISTS idx_overrides_callee ON overrides(callee_symbol);
 "#;
 
+/// Migration 004: Confidence scoring for references
+///
+/// Add confidence and is_dynamic columns to the legacy reference table
+/// so AST-extracted references carry dynamic confidence scores.
+const MIGRATION_004_CONFIDENCE: &str = r#"
+ALTER TABLE reference ADD COLUMN confidence REAL NOT NULL DEFAULT 1.0;
+ALTER TABLE reference ADD COLUMN is_dynamic INTEGER NOT NULL DEFAULT 0;
+CREATE INDEX IF NOT EXISTS idx_ref_confidence ON reference(confidence) WHERE confidence < 1.0;
+"#;
+
 /// 마이그레이션 정의: (버전, 이름, SQL)
 const MIGRATIONS: &[(i32, &str, &str)] = &[
     (1, "initial", MIGRATION_001_INITIAL),
     (2, "masterplan-v1.1", MIGRATION_002_MASTERPLAN),
     (3, "override-registry", MIGRATION_003_OVERRIDES),
+    (4, "confidence-scoring", MIGRATION_004_CONFIDENCE),
 ];
 
 /// 현재 스키마 버전 조회 (versions 테이블에서)

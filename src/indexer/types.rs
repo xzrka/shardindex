@@ -64,6 +64,29 @@ pub struct ParsedReference {
     pub line: usize,
 }
 
+impl ParsedReference {
+    /// Compute confidence score for this reference.
+    ///
+    /// Higher confidence means the reference is more likely to be accurate.
+    /// - `call`, `import`, `inherit`: 1.0 (statically verifiable)
+    /// - `dynamic_dispatch`: 0.7 (method calls on interfaces/traits)
+    /// - `string_ref`: 0.3 (string-based references)
+    /// - Unknown kinds default to 0.5
+    pub fn confidence(&self) -> f64 {
+        match self.ref_kind.as_str() {
+            "call" | "import" | "inherit" | "export" | "use" | "require" | "include" => 1.0,
+            "dynamic_dispatch" | "virtual_call" => 0.7,
+            "string_ref" => 0.3,
+            _ => 0.5,
+        }
+    }
+
+    /// Whether this reference is dynamic (runtime-resolved).
+    pub fn is_dynamic(&self) -> bool {
+        matches!(self.ref_kind.as_str(), "dynamic_dispatch" | "virtual_call" | "string_ref")
+    }
+}
+
 /// File parse result
 #[derive(Debug, Clone)]
 pub struct ParseResult {

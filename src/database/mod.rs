@@ -41,6 +41,8 @@ pub struct ReferenceRecord {
     pub callee_symbol: String,
     pub ref_kind: String,
     pub line: usize,
+    pub confidence: f64,
+    pub is_dynamic: bool,
 }
 
 /// 심볼 랭킹 스코어 (PageRank + degree centrality)
@@ -292,15 +294,16 @@ impl IndexDb {
 
     // ─── References ───
 
-    /// 참조 삽입
+    /// 참조 삽입 (confidence + is_dynamic 포함)
     pub fn insert_reference(&self, rec: &ReferenceRecord) -> Result<i64, anyhow::Error> {
         self.conn.execute(
-            r#"INSERT OR IGNORE INTO reference (caller_file, callee_file, caller_symbol, callee_symbol, ref_kind, line)
-               VALUES (?1, ?2, ?3, ?4, ?5, ?6)"#,
+            r#"INSERT OR IGNORE INTO reference (caller_file, callee_file, caller_symbol, callee_symbol, ref_kind, line, confidence, is_dynamic)
+               VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)"#,
             params![
                 rec.caller_file, rec.callee_file,
                 rec.caller_symbol, rec.callee_symbol,
-                rec.ref_kind, rec.line
+                rec.ref_kind, rec.line,
+                rec.confidence, if rec.is_dynamic { 1 } else { 0 }
             ],
         )?;
         Ok(self.conn.last_insert_rowid())
@@ -309,7 +312,8 @@ impl IndexDb {
     /// 심볼의 neighbors (직접 참조하는/참조받는 심볼)
     pub fn neighbors(&self, symbol_name: &str) -> Result<Vec<ReferenceRecord>, anyhow::Error> {
         let mut stmt = self.conn.prepare(
-            r#"SELECT id, caller_file, callee_file, caller_symbol, callee_symbol, ref_kind, line
+            r#"SELECT id, caller_file, callee_file, caller_symbol, callee_symbol, ref_kind, line,
+                      COALESCE(confidence, 1.0), COALESCE(is_dynamic, 0)
                FROM reference
                WHERE caller_symbol = ?1 OR callee_symbol = ?1
                ORDER BY ref_kind, line
@@ -324,6 +328,8 @@ impl IndexDb {
                 callee_symbol: row.get(4)?,
                 ref_kind: row.get(5)?,
                 line: row.get(6)?,
+                confidence: row.get(7)?,
+                is_dynamic: row.get::<_, i32>(8)? == 1,
             })
         })?;
         Ok(records.collect::<Result<Vec<_>, _>>()?)
