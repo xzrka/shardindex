@@ -6,7 +6,7 @@ pub use schema::init_db;
 /// 파일 레벨 CRUD — 인덱싱 상태 조회
 
 use rusqlite::params;
-use rusqlite::Connection;
+use rusqlite::{Connection, params_from_iter};
 use anyhow::Context;
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -53,16 +53,107 @@ pub struct SymbolRank {
     pub computed_at: String,
 }
 
+/// Blake3 checksum 레저 레코드
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct ChecksumRecord {
+    pub id: i64,
+    pub file_id: i64,
+    pub file_path: String,
+    pub blake3_hash: String,
+    pub computed_at: i64,
+    pub verified_at: i64,
+    pub verify_count: i32,
+    pub mismatch_count: i32,
+    pub status: String,
+}
+
+/// Dirty queue 엔트리
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct DirtyQueueRecord {
+    pub id: i64,
+    pub file_id: i64,
+    pub file_path: String,
+    pub reason: String,
+    pub priority: i32,
+    pub enqueued_at: i64,
+    pub processed_at: Option<i64>,
+    pub retry_count: i32,
+    pub error_log: Option<String>,
+    pub status: String,
+}
+
+/// Agent cache 엔트리 (MCP 쿼리 결과 TTL 캐시)
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct AgentCacheRecord {
+    pub id: i64,
+    pub query_key: String,
+    pub query_hash: String,
+    pub result_json: String,
+    pub created_at: i64,
+    pub expires_at: i64,
+    pub hit_count: i32,
+}
+
 pub struct IndexDb {
     pub conn: Connection,
+    db_path: String,
+}
+
+/// Override record — manual reference override for dynamic refs
+#[derive(Debug, Clone)]
+pub struct OverrideRecord {
+    pub id: i64,
+    pub caller_symbol: String,
+    pub callee_symbol: String,
+    pub ref_kind: String,
+    pub confidence: f64,
+    pub reason: Option<String>,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+impl std::fmt::Debug for IndexDb {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("IndexDb").field("db_path", &self.db_path).finish()
+    }
+}
+
+impl Clone for IndexDb {
+    fn clone(&self) -> Self {
+        let conn = Connection::open(&self.db_path).unwrap_or_else(|_| {
+            Connection::open_in_memory().expect("fallback memory DB should always work")
+        });
+        Self {
+            conn,
+            db_path: self.db_path.clone(),
+        }
+    }
 }
 
 impl IndexDb {
+    /// Return the database file path
+    pub fn db_path(&self) -> &str {
+        &self.db_path
+    }
+
     /// 새 데이터베이스 연결 생성 + 스키마 초기화
     pub fn open(db_path: &str) -> Result<Self, anyhow::Error> {
         let conn = Connection::open(db_path).context(format!("DB open failed: {}", db_path))?;
         init_db(&conn)?;
-        Ok(Self { conn })
+        Ok(Self {
+            conn,
+            db_path: db_path.to_string(),
+        })
+    }
+
+    /// 인메모리 DB 생성 (테스트용)
+    pub fn open_in_memory() -> Result<Self, anyhow::Error> {
+        let conn = Connection::open_in_memory()?;
+        init_db(&conn)?;
+        Ok(Self {
+            conn,
+            db_path: ":memory:".to_string(),
+        })
     }
 
     // ─── File Hash ───
@@ -474,5 +565,431 @@ impl IndexDb {
             Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
         })?;
         Ok(records.collect::<Result<Vec<_>, _>>()?)
+    }
+
+    // ─── Checksums (Blake3 Integrity) ───
+
+    /// 파일의 checksum 조회 (blake3_hash)
+    pub fn get_checksum(&self, file_path: &str) -> Result<Option<String>, anyhow::Error> {
+        let hash = self
+            .conn
+            .query_row(
+                "SELECT c.blake3_hash FROM checksums c
+                 JOIN files f ON c.file_id = f.id
+                 WHERE f.path = ?1",
+                params![file_path],
+                |row| row.get::<_, String>(0),
+            )
+            .ok();
+        Ok(hash)
+    }
+
+    /// 모든 checksum 레코드 조회 (file_path 포함)
+    pub fn all_checksums(&self) -> Result<Vec<ChecksumRecord>, anyhow::Error> {
+        let mut stmt = self.conn.prepare(
+            "SELECT c.id, c.file_id, f.path, c.blake3_hash, c.computed_at, c.verified_at,
+                    c.verify_count, c.mismatch_count, c.status
+             FROM checksums c
+             JOIN files f ON c.file_id = f.id
+             ORDER BY c.id",
+        )?;
+        let records = stmt.query_map(params![], |row| {
+            Ok(ChecksumRecord {
+                id: row.get(0)?,
+                file_id: row.get(1)?,
+                file_path: row.get(2)?,
+                blake3_hash: row.get(3)?,
+                computed_at: row.get(4)?,
+                verified_at: row.get(5)?,
+                verify_count: row.get(6)?,
+                mismatch_count: row.get(7)?,
+                status: row.get(8)?,
+            })
+        })?;
+        Ok(records.collect::<Result<Vec<_>, _>>()?)
+    }
+
+    /// checksum 삽입 또는 업데이트 (files + checksums 테이블 동기화)
+    pub fn upsert_checksum(
+        &self,
+        file_path: &str,
+        blake3_hash: &str,
+        size: u64,
+    ) -> Result<(), anyhow::Error> {
+        let now_ms = chrono::Utc::now().timestamp_millis();
+
+        // files 테이블에 먼저 삽입/업데이트
+        self.conn.execute(
+            r#"INSERT INTO files (path, abs_path, size_bytes, blake3_hash, indexed_at, status)
+               VALUES (?1, ?1, ?2, ?3, ?4, 'valid')
+               ON CONFLICT(path) DO UPDATE SET
+                 blake3_hash = excluded.blake3_hash,
+                 size_bytes = excluded.size_bytes,
+                 indexed_at = excluded.indexed_at,
+                 status = 'valid'"#,
+            params![file_path, size, blake3_hash, now_ms],
+        )?;
+
+        let file_id: i64 = self.conn.query_row(
+            "SELECT id FROM files WHERE path = ?1",
+            params![file_path],
+            |row| row.get(0),
+        )?;
+
+        // checksums 테이블 UPSERT
+        self.conn.execute(
+            r#"INSERT INTO checksums (file_id, blake3_hash, computed_at, verified_at)
+               VALUES (?1, ?2, ?3, ?3)
+               ON CONFLICT(file_id) DO UPDATE SET
+                 blake3_hash = excluded.blake3_hash,
+                 computed_at = excluded.computed_at,
+                 verified_at = excluded.verified_at,
+                 status = 'synced'"#,
+            params![file_id, blake3_hash, now_ms],
+        )?;
+
+        Ok(())
+    }
+
+    /// checksum verified_at + verify_count 증가
+    pub fn touch_checksum_verified(&self, file_path: &str) -> Result<(), anyhow::Error> {
+        let now_ms = chrono::Utc::now().timestamp_millis();
+        self.conn.execute(
+            r#"UPDATE checksums SET verified_at = ?1, verify_count = verify_count + 1
+               WHERE file_id = (SELECT id FROM files WHERE path = ?2)"#,
+            params![now_ms, file_path],
+        )?;
+        Ok(())
+    }
+
+    /// checksum mismatch 기록
+    pub fn record_checksum_mismatch(&self, file_path: &str) -> Result<(), anyhow::Error> {
+        let now_ms = chrono::Utc::now().timestamp_millis();
+        self.conn.execute(
+            r#"UPDATE checksums SET mismatch_count = mismatch_count + 1,
+                 last_mismatch_at = ?1, status = 'mismatch'
+               WHERE file_id = (SELECT id FROM files WHERE path = ?2)"#,
+            params![now_ms, file_path],
+        )?;
+        Ok(())
+    }
+
+    // ─── Dirty Queue ───
+
+    /// dirty_queue에 엔트리 삽입
+    pub fn insert_dirty(
+        &self,
+        file_path: &str,
+        reason: &str,
+        priority: i32,
+    ) -> Result<(), anyhow::Error> {
+        let now_ms = chrono::Utc::now().timestamp_millis();
+
+        // 파일이 없으면 먼저 files 테이블에 생성
+        self.conn.execute(
+            r#"INSERT INTO files (path, abs_path, size_bytes, blake3_hash, indexed_at, status)
+               VALUES (?1, ?1, 0, '', ?2, 'dirty')
+               ON CONFLICT(path) DO UPDATE SET status = 'dirty'"#,
+            params![file_path, now_ms],
+        )?;
+
+        let file_id: i64 = self.conn.query_row(
+            "SELECT id FROM files WHERE path = ?1",
+            params![file_path],
+            |row| row.get(0),
+        )?;
+
+        // 이미 pending이면 삭제 후 재삽입 (upsert)
+        self.conn.execute(
+            "DELETE FROM dirty_queue WHERE file_id = ?1 AND status = 'pending'",
+            params![file_id],
+        )?;
+
+        self.conn.execute(
+            r#"INSERT INTO dirty_queue (file_id, reason, priority, enqueued_at, status)
+               VALUES (?1, ?2, ?3, ?4, 'pending')"#,
+            params![file_id, reason, priority, now_ms],
+        )?;
+
+        Ok(())
+    }
+
+    /// pending dirty queue 엔트리 조회 (우선순위 정렬)
+    pub fn dirty_queue_entries(&self) -> Result<Vec<DirtyQueueRecord>, anyhow::Error> {
+        let mut stmt = self.conn.prepare(
+            "SELECT dq.id, dq.file_id, f.path, dq.reason, dq.priority,
+                    dq.enqueued_at, dq.processed_at, dq.retry_count, dq.error_log, dq.status
+             FROM dirty_queue dq
+             JOIN files f ON dq.file_id = f.id
+             WHERE dq.status = 'pending'
+             ORDER BY dq.priority DESC, dq.enqueued_at ASC",
+        )?;
+        let records = stmt.query_map(params![], |row| {
+            Ok(DirtyQueueRecord {
+                id: row.get(0)?,
+                file_id: row.get(1)?,
+                file_path: row.get(2)?,
+                reason: row.get(3)?,
+                priority: row.get(4)?,
+                enqueued_at: row.get(5)?,
+                processed_at: row.get(6)?,
+                retry_count: row.get(7)?,
+                error_log: row.get(8)?,
+                status: row.get(9)?,
+            })
+        })?;
+        Ok(records.collect::<Result<Vec<_>, _>>()?)
+    }
+
+    /// dirty 큐에서 파일 제거 (처리 완료)
+    pub fn clear_dirty(&self, file_path: &str) -> Result<(), anyhow::Error> {
+        let now_ms = chrono::Utc::now().timestamp_millis();
+        self.conn.execute(
+            r#"UPDATE dirty_queue SET status = 'processed', processed_at = ?1
+               WHERE file_id = (SELECT id FROM files WHERE path = ?2)"#,
+            params![now_ms, file_path],
+        )?;
+        Ok(())
+    }
+
+    /// 파일 상태 업데이트
+    pub fn update_file_status(&self, file_path: &str, status: &str) -> Result<(), anyhow::Error> {
+        self.conn.execute(
+            "UPDATE files SET status = ?1 WHERE path = ?2",
+            params![status, file_path],
+        )?;
+        Ok(())
+    }
+
+    // ─── Agent Cache ───
+
+    /// 캐시 조회 (TTL 체크 포함, hit_count +1)
+    ///
+    /// `query_key`로 캐시된 결과를 조회하고, 유효한 경우 `hit_count`를 1 증가시킵니다.
+    /// 증가된 `hit_count` 값을 반환합니다.
+    /// 만료된 캐시는 `None`을 반환합니다.
+    pub fn get_cached(&self, query_key: &str) -> Option<AgentCacheRecord> {
+        let now_ms = chrono::Utc::now().timestamp_millis();
+
+        // 1. hit_count 증가 (TTL 체크 포함 — 만료된 항목은 업데이트하지 않음)
+        if self
+            .conn
+            .execute(
+                "UPDATE agent_cache SET hit_count = hit_count + 1 \n                 WHERE query_key = ?1 AND expires_at > ?2",
+                params![query_key, now_ms],
+            )
+            .ok()
+            .unwrap_or(0)
+            == 0
+        {
+            return None; // 만료됨 또는 존재하지 않음
+        }
+
+        // 2. 업데이트된 값 조회
+        let mut stmt = self
+            .conn
+            .prepare(
+                "SELECT id, query_key, query_hash, result_json, created_at, expires_at, hit_count
+                 FROM agent_cache
+                 WHERE query_key = ?1",
+            )
+            .ok()?;
+        stmt
+            .query_row(params![query_key], |row| {
+                Ok(AgentCacheRecord {
+                    id: row.get(0)?,
+                    query_key: row.get(1)?,
+                    query_hash: row.get(2)?,
+                    result_json: row.get(3)?,
+                    created_at: row.get(4)?,
+                    expires_at: row.get(5)?,
+                    hit_count: row.get(6)?,
+                })
+            })
+            .ok()
+    }
+
+    /// 캐시 저장 (query_key → result_json, TTL 초)
+    ///
+    /// `query_key`가 이미 존재하면 결과를 덮어쓰고 `hit_count`를 초기화합니다.
+    /// `ttl_seconds`는 캐시 유효 기간(초)입니다.
+    pub fn set_cached(
+        &self,
+        query_key: &str,
+        result_json: &str,
+        ttl_seconds: u64,
+    ) -> Result<(), anyhow::Error> {
+        let now_ms = chrono::Utc::now().timestamp_millis();
+        let expires_at = now_ms + (ttl_seconds * 1_000) as i64;
+        let query_hash = blake3::hash(query_key.as_bytes()).to_hex().to_string();
+
+        self.conn.execute(
+            r#"INSERT INTO agent_cache (query_key, query_hash, result_json, created_at, expires_at)
+               VALUES (?1, ?2, ?3, ?4, ?5)
+               ON CONFLICT(query_key) DO UPDATE SET
+                 result_json = excluded.result_json,
+                 query_hash = excluded.query_hash,
+                 created_at = excluded.created_at,
+                 expires_at = excluded.expires_at,
+                 hit_count = 0"#,
+            params![query_key, query_hash, result_json, now_ms, expires_at],
+        )?;
+        Ok(())
+    }
+
+    /// 캐시 무효화
+    ///
+    /// 특정 `query_key`에 해당하는 캐시 엔트리를 삭제합니다.
+    pub fn invalidate_cached(&self, query_key: &str) -> Result<(), anyhow::Error> {
+        self.conn.execute(
+            "DELETE FROM agent_cache WHERE query_key = ?1",
+            params![query_key],
+        )?;
+        Ok(())
+    }
+
+    /// 만료된 캐시 전체 정리
+    ///
+    /// `expires_at`가 지난 모든 캐시 엔트리를 삭제하고, 삭제된 개수를 반환합니다.
+    pub fn purge_expired(&self) -> Result<usize, anyhow::Error> {
+        let now_ms = chrono::Utc::now().timestamp_millis();
+        let deleted = self.conn.execute(
+            "DELETE FROM agent_cache WHERE expires_at <= ?1",
+            params![now_ms],
+        )?;
+        Ok(deleted)
+    }
+
+    /// 모든 활성 캐시 엔트리 조회 (hit_count 내림차순)
+    ///
+    /// 만료되지 않은 캐시만 반환합니다. 디버깅 및 모니터링용입니다.
+    pub fn all_cached(&self) -> Result<Vec<AgentCacheRecord>, anyhow::Error> {
+        let now_ms = chrono::Utc::now().timestamp_millis();
+        let mut stmt = self.conn.prepare(
+            "SELECT id, query_key, query_hash, result_json, created_at, expires_at, hit_count
+             FROM agent_cache
+             WHERE expires_at > ?1
+             ORDER BY hit_count DESC",
+        )?;
+        let records = stmt.query_map(params![now_ms], |row| {
+            Ok(AgentCacheRecord {
+                id: row.get(0)?,
+                query_key: row.get(1)?,
+                query_hash: row.get(2)?,
+                result_json: row.get(3)?,
+                created_at: row.get(4)?,
+                expires_at: row.get(5)?,
+                hit_count: row.get(6)?,
+            })
+        })?;
+        Ok(records.collect::<Result<Vec<_>, _>>()?)
+    }
+
+    /// 캐시 통계 (총 엔트리 수, 활성, 만료됨)
+    pub fn cache_stats(&self) -> Result<(usize, usize, usize), anyhow::Error> {
+        let now_ms = chrono::Utc::now().timestamp_millis();
+        let total: usize = self
+            .conn
+            .query_row("SELECT COUNT(*) FROM agent_cache", [], |r| r.get(0))
+            .unwrap_or(0);
+        let active: usize = self.conn.query_row(
+            "SELECT COUNT(*) FROM agent_cache WHERE expires_at > ?1",
+            params![now_ms],
+            |r| r.get(0),
+        ).unwrap_or(0);
+        let expired = total - active;
+        Ok((total, active, expired))
+   }
+
+    /// Flush SQLite WAL mode — checkpoint all WAL frames to the main database.
+    /// Use before graceful shutdown to ensure durability.
+    pub fn flush_wal(&self) -> Result<(), anyhow::Error> {
+        self.conn
+            .execute_batch("PRAGMA wal_checkpoint(TRUNCATE);")
+            .context("WAL checkpoint")?;
+        Ok(())
+    }
+
+    // ================================================================
+    // Override registry
+    // ================================================================
+
+    /// Insert a manual reference override
+    pub fn insert_override(
+        &self,
+        caller: &str,
+        callee: &str,
+        kind: &str,
+        confidence: f64,
+        reason: &str,
+    ) -> Result<i64, anyhow::Error> {
+        let mut stmt = self
+            .conn
+            .prepare(
+                "INSERT INTO overrides (caller_symbol, callee_symbol, ref_kind, confidence, reason) \
+                 VALUES (?1, ?2, ?3, ?4, ?5)",
+            )
+            .context("prepare insert_override")?;
+        stmt.execute(rusqlite::params![caller, callee, kind, confidence, reason])
+            .context("execute insert_override")?;
+        Ok(self.conn.last_insert_rowid())
+    }
+
+    /// Remove an override by ID
+    pub fn remove_override(&self, id: i64) -> Result<usize, anyhow::Error> {
+        self.conn
+            .execute("DELETE FROM overrides WHERE id = ?1", rusqlite::params![id])
+            .context("execute remove_override")
+    }
+
+    /// List all overrides
+    pub fn list_overrides(&self) -> Result<Vec<OverrideRecord>, anyhow::Error> {
+        let mut stmt = self
+            .conn
+            .prepare(
+                "SELECT id, caller_symbol, callee_symbol, ref_kind, confidence, reason, \
+                       created_at, updated_at FROM overrides ORDER BY id",
+            )
+            .context("prepare list_overrides")?;
+        let rows = stmt.query_map([], |r| {
+            Ok(OverrideRecord {
+                id: r.get(0)?,
+                caller_symbol: r.get(1)?,
+                callee_symbol: r.get(2)?,
+                ref_kind: r.get(3)?,
+                confidence: r.get(4)?,
+                reason: r.get(5)?,
+                created_at: r.get(6)?,
+                updated_at: r.get(7)?,
+            })
+        })
+        .context("query list_overrides")?;
+        rows.collect::<Result<Vec<_>, _>>().context("collect list_overrides")
+    }
+
+    /// Get overrides for a specific symbol (as caller or callee)
+    pub fn overrides_for_symbol(&self, symbol: &str) -> Result<Vec<OverrideRecord>, anyhow::Error> {
+        let mut stmt = self
+            .conn
+            .prepare(
+                "SELECT id, caller_symbol, callee_symbol, ref_kind, confidence, reason, \
+                       created_at, updated_at FROM overrides \
+                       WHERE caller_symbol = ?1 OR callee_symbol = ?1 ORDER BY id",
+            )
+            .context("prepare overrides_for_symbol")?;
+        let rows = stmt.query_map(rusqlite::params![symbol], |r| {
+            Ok(OverrideRecord {
+                id: r.get(0)?,
+                caller_symbol: r.get(1)?,
+                callee_symbol: r.get(2)?,
+                ref_kind: r.get(3)?,
+                confidence: r.get(4)?,
+                reason: r.get(5)?,
+                created_at: r.get(6)?,
+                updated_at: r.get(7)?,
+            })
+        })
+        .context("query overrides_for_symbol")?;
+        rows.collect::<Result<Vec<_>, _>>().context("collect overrides_for_symbol")
     }
 }

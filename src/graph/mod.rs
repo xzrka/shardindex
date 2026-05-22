@@ -330,6 +330,191 @@ pub fn compute_and_store_ranks(db: &IndexDb, config: Option<&PageRankConfig>) ->
     Ok(())
 }
 
+// ─── Edit Plan Analysis ───
+
+/// Proposed change type for edit_plan
+#[derive(Debug, Clone)]
+pub enum EditChangeType {
+    Rename,
+    AddParam,
+    RemoveParam,
+    ChangeReturn,
+}
+
+/// A single proposed change
+#[derive(Debug, Clone)]
+pub struct EditChange {
+    pub change_type: EditChangeType,
+    pub details: serde_json::Map<String, serde_json::Value>,
+}
+
+/// Impact analysis result for edit_plan
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct EditPlanResult {
+    pub affected_symbols: Vec<String>,
+    pub files_to_update: Vec<String>,
+    pub breaking_changes: Vec<BreakingChange>,
+    pub safe_to_proceed: bool,
+    pub estimated_tokens: u32,
+}
+
+/// A detected breaking change
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct BreakingChange {
+    pub symbol: String,
+    pub file_path: String,
+    pub change_type: String,
+    pub description: String,
+}
+
+/// Analyze the impact of proposed edits on a symbol.
+///
+/// 1. Look up target symbol in DB
+/// 2. Run impact analysis to get all callers
+/// 3. For `rename`: identify all files referencing the old name
+/// 4. For `add_param/remove_param`: identify callers needing updates
+/// 5. Return affected files + breaking changes
+pub fn analyze_edit_plan(
+    db: &IndexDb,
+    symbol: &str,
+    changes: &[EditChange],
+    _depth: u8,
+) -> anyhow::Result<EditPlanResult> {
+    // Get impact: all callers of this symbol
+    let (callers, _refs) = db.impact(symbol)?;
+
+    // Get neighbors for callee info
+    let neighbors = db.neighbors(symbol)?;
+
+    // Collect affected symbols (callers + the target itself)
+    let mut affected_symbols: Vec<String> = Vec::new();
+    affected_symbols.push(symbol.to_string());
+    for caller in &callers {
+        if !affected_symbols.contains(&caller.name) {
+            affected_symbols.push(caller.name.clone());
+        }
+    }
+
+    // Collect files that need updating (caller symbols already have file_path)
+    let mut files_to_update: Vec<String> = Vec::new();
+    for caller in &callers {
+        if !files_to_update.contains(&caller.file_path) {
+            files_to_update.push(caller.file_path.clone());
+        }
+    }
+
+    // Analyze breaking changes per change type
+    let mut breaking_changes: Vec<BreakingChange> = Vec::new();
+
+    for change in changes {
+        match &change.change_type {
+            EditChangeType::Rename => {
+                let from = change
+                    .details
+                    .get("from")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
+                let to = change
+                    .details
+                    .get("to")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
+
+                if !from.is_empty() && !to.is_empty() {
+                    for caller in &callers {
+                        breaking_changes.push(BreakingChange {
+                            symbol: caller.name.clone(),
+                            file_path: caller.file_path.clone(),
+                            change_type: "rename".to_string(),
+                            description: format!(
+                                "Update reference from '{}' to '{}'",
+                                from, to
+                            ),
+                        });
+                    }
+                }
+            }
+            EditChangeType::AddParam => {
+                let param = change
+                    .details
+                    .get("param")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
+                for caller in &callers {
+                    breaking_changes.push(BreakingChange {
+                        symbol: caller.name.clone(),
+                        file_path: caller.file_path.clone(),
+                        change_type: "add_param".to_string(),
+                        description: format!(
+                            "Caller must add parameter '{}' to call site",
+                            param
+                        ),
+                    });
+                }
+            }
+            EditChangeType::RemoveParam => {
+                let param = change
+                    .details
+                    .get("param")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
+                for caller in &callers {
+                    breaking_changes.push(BreakingChange {
+                        symbol: caller.name.clone(),
+                        file_path: caller.file_path.clone(),
+                        change_type: "remove_param".to_string(),
+                        description: format!(
+                            "Caller must remove parameter '{}' from call site",
+                            param
+                        ),
+                    });
+                }
+            }
+            EditChangeType::ChangeReturn => {
+                let new_return = change
+                    .details
+                    .get("new_return")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
+                for caller in &callers {
+                    breaking_changes.push(BreakingChange {
+                        symbol: caller.name.clone(),
+                        file_path: caller.file_path.clone(),
+                        change_type: "change_return".to_string(),
+                        description: format!(
+                            "Return type changed — caller may need to adapt to '{}'",
+                            new_return
+                        ),
+                    });
+                }
+            }
+        }
+    }
+
+    // Also include callee references (symbols this target calls) — they may be affected by signature changes
+    for neighbor in &neighbors {
+        let callee = neighbor.callee_symbol.as_str();
+        if !affected_symbols.contains(&callee.to_string()) {
+            affected_symbols.push(callee.to_string());
+        }
+    }
+
+    // Estimate tokens: ~50 tokens per affected symbol for ref updates
+    let estimated_tokens = (affected_symbols.len() * 50) as u32;
+
+    // Safe to proceed if no breaking changes or only rename changes
+    let safe_to_proceed = breaking_changes.is_empty()
+        || breaking_changes.iter().all(|bc| bc.change_type == "rename");
+
+    Ok(EditPlanResult {
+        affected_symbols,
+        files_to_update,
+        breaking_changes,
+        safe_to_proceed,
+        estimated_tokens,
+    })
+}
+
 // ─── Unit Tests ───
 
 #[cfg(test)]

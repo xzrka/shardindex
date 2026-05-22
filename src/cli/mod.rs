@@ -17,8 +17,8 @@ pub enum Commands {
         #[arg(short, long, default_value = ".")]
         path: String,
 
-        /// Language (default: python)
-        #[arg(short, long, default_value = "python")]
+        /// Language (default: auto — auto-detect all supported languages)
+        #[arg(short, long, default_value = "auto")]
         language: String,
 
         /// Database path (default: .shardindex.db)
@@ -36,8 +36,8 @@ pub enum Commands {
         #[arg(long, default_value = ".shardindex.db")]
         db: String,
 
-        /// Language (default: python)
-        #[arg(short, long, default_value = "python")]
+        /// Language (default: auto — auto-detect all supported languages)
+        #[arg(short, long, default_value = "auto")]
         language: String,
 
         /// Listen address
@@ -54,8 +54,8 @@ pub enum Commands {
         #[arg(short, long, default_value = ".")]
         path: String,
 
-        /// Language (default: python)
-        #[arg(short, long, default_value = "python")]
+        /// Language (default: auto — auto-detect all supported languages)
+        #[arg(short, long, default_value = "auto")]
         language: String,
 
         #[arg(long, default_value = ".shardindex.db")]
@@ -68,13 +68,34 @@ pub enum Commands {
         db: String,
     },
 
-    /// Search symbols
+    /// Search symbols (fuzzy matching + PageRank scoring)
     Search {
         /// Search query
         query: String,
 
+        /// Database path
         #[arg(long, default_value = ".shardindex.db")]
         db: String,
+
+        /// Symbol kind filter (e.g., "function", "class", "method")
+        #[arg(long)]
+        kind: Option<String>,
+
+        /// Language filter (e.g., "python", "javascript")
+        #[arg(long)]
+        language: Option<String>,
+
+        /// Minimum fuzzy score (0.0 - 1.0, default: 0.1)
+        #[arg(long, default_value_t = 0.1)]
+        min_score: f64,
+
+        /// Maximum results (default: 50)
+        #[arg(short, long, default_value_t = 50)]
+        limit: usize,
+
+        /// Use fast LIKE search instead of fuzzy matching
+        #[arg(long)]
+        like: bool,
     },
 
     /// Show neighbors of a symbol
@@ -129,5 +150,61 @@ pub enum Commands {
         /// Show top N ranked symbols (default: 20)
         #[arg(short, long, default_value_t = 20)]
         top: usize,
+    },
+
+    /// Override registry management
+    Override {
+        #[command(subcommand)]
+        command: OverrideSubcommand,
+
+        /// Database path
+        #[arg(long, default_value = ".shardindex.db")]
+        db: String,
+    },
+
+    /// Verify override coverage for symbols
+    Verify {
+        /// Symbol names to check
+        symbols: Vec<String>,
+
+        /// Database path
+        #[arg(long, default_value = ".shardindex.db")]
+        db: String,
+
+        /// Language filter
+        #[arg(long)]
+        language: Option<String>,
+    },
+}
+
+#[derive(Subcommand, Debug)]
+pub enum OverrideSubcommand {
+    /// Add an override
+    Add {
+        /// Caller symbol
+        caller: String,
+        /// Callee symbol
+        callee: String,
+        /// Reference kind
+        #[arg(long, default_value = "override")]
+        kind: String,
+        /// Confidence (0.0-1.0)
+        #[arg(long, default_value_t = 0.9)]
+        confidence: f64,
+        /// Reason
+        #[arg(long)]
+        reason: Option<String>,
+    },
+    /// Remove an override by ID
+    Remove {
+        /// Override ID
+        id: i64,
+    },
+    /// List all overrides
+    List,
+    /// Get overrides for a symbol
+    ForSymbol {
+        /// Symbol name
+        symbol: String,
     },
 }

@@ -27,9 +27,16 @@ chrono = "0.4"
 
 # File integrity
 blake3 = "1"
+walkdir = "2"
+
+# Config file parsing
+toml = "0.8"
 
 # Watch for file changes
 notify = "8"
+
+# Dev
+tempfile = "3"
 
 # JSON-RPC / MCP server
 serde = { version = "1", features = ["derive"] }

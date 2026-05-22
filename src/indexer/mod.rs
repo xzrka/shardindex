@@ -57,7 +57,7 @@ use tracing::{info, debug, warn};
 use crate::database::{IndexDb, SymbolRecord};
 
 /// Supported language parsers
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Language {
     Python,
     JavaScript,
@@ -220,6 +220,43 @@ impl Language {
     }
 }
 
+/// Per-language indexing result
+#[derive(Debug)]
+pub struct IndexSummary {
+    pub total_files: usize,
+    pub total_symbols: usize,
+    pub total_refs: usize,
+    pub languages: Vec<LanguageSummary>,
+}
+
+#[derive(Debug)]
+pub struct LanguageSummary {
+    pub language: String,
+    pub files: usize,
+    pub symbols: usize,
+    pub refs: usize,
+}
+
+impl IndexSummary {
+    pub fn new() -> Self {
+        Self {
+            total_files: 0,
+            total_symbols: 0,
+            total_refs: 0,
+            languages: Vec::new(),
+        }
+    }
+
+    pub fn add_language(&mut self, language: String, files: usize, symbols: usize, refs: usize) {
+        self.languages.push(LanguageSummary {
+            language,
+            files,
+            symbols,
+            refs,
+        });
+    }
+}
+
 /// Project indexer
 pub struct ProjectIndexer {
     db: IndexDb,
@@ -235,7 +272,7 @@ impl ProjectIndexer {
         Ok(Self { db, root, language, parser })
     }
 
-    /// Full project indexing (initial)
+    /// Full project indexing (initial) — single language
     pub fn index_all(&mut self) -> Result<(usize, usize, usize), anyhow::Error> {
         info!("Indexing project at {} ({})", self.root.display(), self.language.as_str());
 
@@ -264,6 +301,66 @@ impl ProjectIndexer {
         );
 
         Ok((files.len(), symbols, refs))
+    }
+
+    /// Multi-language project indexing — auto-detect language per file.
+    ///
+    /// Walks the project root, groups files by detected language, then
+    /// indexes each group with the appropriate parser.
+    pub fn index_all_multi(&mut self) -> Result<IndexSummary, anyhow::Error> {
+        info!("Multi-language indexing at {}", self.root.display());
+
+        // Collect all supported files, grouped by language
+        let mut lang_files: std::collections::HashMap<Language, Vec<PathBuf>> =
+            std::collections::HashMap::new();
+
+        self.walk_all_supported(&self.root, &mut lang_files)?;
+
+        let mut summary = IndexSummary::new();
+
+        // Collect all files before consuming lang_files
+        let all_files: Vec<PathBuf> = lang_files.values().flatten().cloned().collect();
+
+        for (lang, files) in lang_files {
+            info!(
+                "Indexing {} files as {}",
+                files.len(),
+                lang.as_str()
+            );
+
+            // Create a temporary indexer for this language
+            let mut lang_indexer = ProjectIndexer::new(self.db.clone(), self.root.clone(), lang)?;
+
+            let mut symbols = 0;
+            let mut refs = 0;
+
+            for file in &files {
+                match lang_indexer.index_file(file) {
+                    Ok((s, r)) => {
+                        symbols += s;
+                        refs += r;
+                    }
+                    Err(e) => {
+                        warn!("Failed to index {}: {}", file.display(), e);
+                    }
+                }
+            }
+
+            summary.add_language(lang.as_str().to_string(), files.len(), symbols, refs);
+            summary.total_files += files.len();
+            summary.total_symbols += symbols;
+            summary.total_refs += refs;
+        }
+
+        // Clean up deleted files from DB
+        self.clean_deleted_files(&all_files)?;
+
+        info!(
+            "Multi-language indexing complete: {} files, {} symbols, {} references across {} languages",
+            summary.total_files, summary.total_symbols, summary.total_refs, summary.languages.len()
+        );
+
+        Ok(summary)
     }
 
     /// Index a single file (change detection + reparse)
@@ -402,6 +499,37 @@ impl ProjectIndexer {
                         files.push(path);
                     }
                 }
+            }
+        }
+        Ok(())
+    }
+
+    /// Walk all supported languages — populate lang_files map
+    fn walk_all_supported(
+        &self,
+        dir: &Path,
+        lang_files: &mut std::collections::HashMap<Language, Vec<PathBuf>>,
+    ) -> Result<(), anyhow::Error> {
+        for entry in fs::read_dir(dir)? {
+            let entry = entry?;
+            let path = entry.path();
+
+            if path.is_dir() {
+                let skip = [
+                    ".git", "__pycache__", ".venv", "venv", "node_modules", ".mypy_cache",
+                    ".tox", ".eggs", "dist", "build", ".next", ".nuxt", "target", ".shardindex",
+                ];
+                if path
+                    .file_name()
+                    .map_or(false, |n| skip.contains(&n.to_string_lossy().as_ref()))
+                {
+                    continue;
+                }
+                self.walk_all_supported(&path, lang_files)?;
+            } else if let Some(lang) = path.extension().and_then(|e| e.to_str()).and_then(|ext| {
+                Language::from_extension(&format!(".{}", ext))
+            }) {
+                lang_files.entry(lang).or_insert_with(Vec::new).push(path);
             }
         }
         Ok(())
