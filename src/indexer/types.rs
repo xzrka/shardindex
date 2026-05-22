@@ -22,6 +22,10 @@ pub enum SymbolKind {
     Module,
     Enum,
     TypeAlias,
+    Section,
+    CodeBlock,
+    Link,
+    Table,
 }
 
 impl SymbolKind {
@@ -37,6 +41,10 @@ impl SymbolKind {
             SymbolKind::Module => "module",
             SymbolKind::Enum => "enum",
             SymbolKind::TypeAlias => "type_alias",
+            SymbolKind::Section => "section",
+            SymbolKind::CodeBlock => "code_block",
+            SymbolKind::Link => "link",
+            SymbolKind::Table => "table",
         }
     }
 }

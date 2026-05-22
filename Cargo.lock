@@ -1059,6 +1059,7 @@ dependencies = [
  "tree-sitter-javascript",
  "tree-sitter-julia",
  "tree-sitter-lua",
+ "tree-sitter-markdown-updated",
  "tree-sitter-php",
  "tree-sitter-python",
  "tree-sitter-ruby",
@@ -1436,6 +1437,16 @@ checksum = "8daaf5f4235188a58603c39760d5fa5d4b920d36a299c934adddae757f32a10c"
 dependencies = [
  "cc",
  "tree-sitter-language",
+]
+
+[[package]]
+name = "tree-sitter-markdown-updated"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "650c95d396001cd3f81129ee0cea805a593eafcf016e177f221baab7bc7e7616"
+dependencies = [
+ "cc",
+ "tree-sitter",
 ]
 
 [[package]]

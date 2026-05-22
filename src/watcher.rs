@@ -499,10 +499,10 @@ mod tests {
         assert!(Language::from_extension("test.hs").is_some());
         assert!(Language::from_extension("test.c").is_some());
         assert!(Language::from_extension("test.cpp").is_some());
+        assert!(Language::from_extension("test.md").is_some());
 
         // Unsupported
         assert!(Language::from_extension("test.txt").is_none());
-        assert!(Language::from_extension("test.md").is_none());
         assert!(Language::from_extension("test.bin").is_none());
     }
 

@@ -22,6 +22,7 @@ mod dart;
 mod haskell;
 mod r#c;
 mod cpp;
+mod markdown;
 #[cfg(test)]
 mod tests;
 
@@ -47,6 +48,7 @@ pub use dart::DartParser;
 pub use haskell::HaskellParser;
 pub use r#c::CParser;
 pub use cpp::CppParser;
+pub use markdown::MarkdownParser;
 
 use std::collections::HashSet;
 use std::fs;
@@ -77,6 +79,7 @@ pub enum Language {
     Haskell,
     C,
     Cpp,
+    Markdown,
 }
 
 impl Language {
@@ -104,6 +107,7 @@ impl Language {
             "hs" | "lhs" => Some(Language::Haskell),
             "c" | "h" => Some(Language::C),
             "cpp" | "hpp" | "cc" | "cxx" | "hxx" | "hh" => Some(Language::Cpp),
+            "md" | "markdown" | "mdown" | "mkd" => Some(Language::Markdown),
             _ => None,
         }
     }
@@ -128,6 +132,7 @@ impl Language {
             Language::Haskell => "haskell",
             Language::C => "c",
             Language::Cpp => "cpp",
+            Language::Markdown => "markdown",
         }
     }
 
@@ -152,6 +157,7 @@ impl Language {
             Language::Haskell => &["hs", "lhs"],
             Language::C => &["c", "h"],
             Language::Cpp => &["cpp", "hpp", "cc", "cxx", "hxx", "hh"],
+            Language::Markdown => &["md", "markdown", "mdown", "mkd"],
         }
     }
 
@@ -176,6 +182,7 @@ impl Language {
             Language::Haskell => Ok(Box::new(HaskellParser::new()?)),
             Language::C => Ok(Box::new(CParser::new()?)),
             Language::Cpp => Ok(Box::new(CppParser::new()?)),
+            Language::Markdown => Ok(Box::new(MarkdownParser::new()?)),
         }
     }
 
@@ -216,6 +223,10 @@ impl Language {
             ("cxx", Language::Cpp),
             ("hxx", Language::Cpp),
             ("hh", Language::Cpp),
+            ("md", Language::Markdown),
+            ("markdown", Language::Markdown),
+            ("mdown", Language::Markdown),
+            ("mkd", Language::Markdown),
         ]
     }
 }
