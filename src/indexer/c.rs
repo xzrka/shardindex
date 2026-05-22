@@ -135,15 +135,15 @@ impl CParser {
     }
 
     fn extract_struct(node: &Node, source: &[u8], result: &mut ParseResult, parent: Option<&str>) {
-        // In tree-sitter-c, struct_specifier uses "body" field or just has a field_declaration_list child
-        let has_body = node.child_by_field_name("body").is_some()
-            || node.child_by_field_name("field_declaration_list").is_some();
+        // In tree-sitter-c, struct_specifier has field 'body' -> field_declaration_list
+        // and field 'name' -> type_identifier
+        let has_body = node.child_by_field_name("body").is_some();
         if !has_body {
             return;
         }
 
         let name = node
-            .child_by_field_name("type_identifier")
+            .child_by_field_name("name")
             .and_then(|n| n.utf8_text(source).ok())
             .map(|s| s.to_string());
 

@@ -1,7 +1,4 @@
 #[cfg(test)]
-
-use super::*;
-
 use super::*;
 
 fn test_parse_py(code: &str) -> ParseResult {

@@ -75,8 +75,10 @@ impl DartParser {
     }
 
     fn extract_function(node: &Node, source: &[u8], result: &mut ParseResult, parent: Option<&str>) {
+        // Dart: function name is inside function_signature -> child_by_field_name("name")
         let name = node
-            .child_by_field_name("name")
+            .child_by_field_name("signature")
+            .and_then(|sig| sig.child_by_field_name("name"))
             .and_then(|n| n.utf8_text(source).ok())
             .map(|s| s.to_string());
         let Some(name) = name else {
@@ -84,7 +86,8 @@ impl DartParser {
         };
 
         let params = node
-            .child_by_field_name("parameters")
+            .child_by_field_name("signature")
+            .and_then(|sig| sig.child_by_field_name("parameters"))
             .and_then(|n| n.utf8_text(source).ok())
             .map(|s| s.to_string())
             .unwrap_or_else(|| "()".to_string());

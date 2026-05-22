@@ -70,6 +70,3 @@ path = "src/bin/ts_field_debug.rs"
 [[bin]]
 name = "rust_go_ast_debug"
 path = "src/bin/rust_go_ast_debug.rs"
-[[bin]]
-name = "debug_ast"
-path = "src/bin/debug_ast.rs"

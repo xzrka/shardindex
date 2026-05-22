@@ -100,10 +100,13 @@ impl ZigParser {
     }
 
     fn extract_type(node: &Node, source: &[u8], result: &mut ParseResult, parent: Option<&str>) {
-        let name = node
-            .child_by_field_name("name")
-            .and_then(|n| n.utf8_text(source).ok())
-            .map(|s| s.to_string());
+        // Zig: struct_declaration has no name field. Parent variable_declaration's 1st named child is identifier.
+        let name = node.parent().and_then(|p| {
+            // variable_declaration -> named_child(0) is identifier (User)
+            p.named_child(0)
+        })
+        .and_then(|n| n.utf8_text(source).ok())
+        .map(|s| s.to_string());
         let Some(name) = name else {
             return;
         };

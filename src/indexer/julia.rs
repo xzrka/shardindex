@@ -49,7 +49,7 @@ impl JuliaParser {
             "macro_definition" => {
                 Self::extract_macro(node, source, result, parent.as_deref());
             }
-            "module" => {
+            "module_definition" => {
                 Self::extract_module(node, source, result, parent.as_deref());
             }
             "import" | "using" => {
@@ -68,7 +68,7 @@ impl JuliaParser {
                     .child_by_field_name("name")
                     .and_then(|n| n.utf8_text(source).ok())
                     .map(|s| s.to_string()),
-                "module" => node
+                "module_definition" => node
                     .child_by_field_name("name")
                     .and_then(|n| n.utf8_text(source).ok())
                     .map(|s| s.to_string()),
@@ -79,16 +79,25 @@ impl JuliaParser {
     }
 
     fn extract_function(node: &Node, source: &[u8], result: &mut ParseResult, parent: Option<&str>) {
-        let name = node
-            .child_by_field_name("name")
-            .and_then(|n| n.utf8_text(source).ok())
-            .map(|s| s.to_string());
+        // Julia: function name is positional: named_child(0) = signature -> [typed_]expression -> call_expression -> identifier
+        let signature = node.named_child(0);
+        let name = signature.and_then(|sig| {
+            let first = sig.named_child(0)?; // typed_expression or call_expression
+            // If typed_expression, drill down to call_expression
+            let ce = if first.kind() == "call_expression" {
+                first
+            } else {
+                first.named_child(0)? // typed_expression -> call_expression
+            };
+            ce.named_child(0) // call_expression -> identifier
+        })
+        .and_then(|n| n.utf8_text(source).ok())
+        .map(|s| s.to_string());
         let Some(name) = name else {
             return;
         };
 
-        let args = node
-            .child_by_field_name("arguments")
+        let args = signature
             .and_then(|n| n.utf8_text(source).ok())
             .map(|s| s.to_string())
             .unwrap_or_else(|| "()".to_string());

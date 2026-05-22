@@ -71,7 +71,7 @@ impl CppParser {
         for child in node.children(&mut cursor) {
             let new_parent = match kind {
                 "class_specifier" | "struct_specifier" => node
-                    .child_by_field_name("type_identifier")
+                    .child_by_field_name("name")
                     .and_then(|n| n.utf8_text(source).ok())
                     .map(|s| s.to_string()),
                 "namespace_definition" | "namespace_alias_definition" => node
@@ -144,7 +144,7 @@ impl CppParser {
 
     fn extract_class(node: &Node, source: &[u8], result: &mut ParseResult, parent: Option<&str>) {
         let name = node
-            .child_by_field_name("type_identifier")
+            .child_by_field_name("name")
             .and_then(|n| n.utf8_text(source).ok())
             .map(|s| s.to_string());
         let Some(name) = name else {
@@ -186,7 +186,7 @@ impl CppParser {
 
     fn extract_struct(node: &Node, source: &[u8], result: &mut ParseResult, parent: Option<&str>) {
         let name = node
-            .child_by_field_name("type_identifier")
+            .child_by_field_name("name")
             .and_then(|n| n.utf8_text(source).ok())
             .map(|s| s.to_string());
         let Some(name) = name else {
@@ -208,7 +208,7 @@ impl CppParser {
 
     fn extract_enum(node: &Node, source: &[u8], result: &mut ParseResult, parent: Option<&str>) {
         let name = node
-            .child_by_field_name("type_identifier")
+            .child_by_field_name("name")
             .and_then(|n| n.utf8_text(source).ok())
             .map(|s| s.to_string());
         if let Some(name) = name {

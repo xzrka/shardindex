@@ -52,9 +52,6 @@ impl RubyParser {
             "module" => {
                 Self::extract_module(node, source, result, parent.as_deref());
             }
-            "require" | "require_relative" => {
-                Self::extract_require(node, source, result);
-            }
             "call" => {
                 Self::extract_call(node, source, result);
             }
@@ -188,10 +185,13 @@ impl RubyParser {
         });
     }
 
+    #[allow(dead_code)]
     fn extract_require(node: &Node, source: &[u8], result: &mut ParseResult) {
-        let arg = node.child_by_field_name("argument");
-        if let Some(path) = arg.and_then(|n| n.utf8_text(source).ok()) {
-            let cleaned = path.trim_matches('"').to_string();
+        // Ruby: arguments field exists, callee is first named child
+        let arg = node.child_by_field_name("arguments");
+        let path = arg.and_then(|a| a.named_child(0)).and_then(|n| n.utf8_text(source).ok());
+        if let Some(raw) = path {
+            let cleaned = raw.trim_matches('"').trim_matches('\'').to_string();
             if !cleaned.is_empty() {
                 result.imports.push((
                     cleaned.clone(),
@@ -209,10 +209,30 @@ impl RubyParser {
     }
 
     fn extract_call(node: &Node, source: &[u8], result: &mut ParseResult) {
-        let method_name = node.child_by_field_name("method_name");
-        if let Some(name) = method_name.and_then(|n| n.utf8_text(source).ok()) {
+        // Ruby: callee is first named child (identifier)
+        let method_name = node.named_child(0).and_then(|n| n.utf8_text(source).ok());
+        if let Some(name) = method_name {
             let callee = name.to_string();
-            if !callee.is_empty() {
+            // Handle require/require_relative as imports
+            if callee == "require" || callee == "require_relative" {
+                let arg = node.child_by_field_name("arguments");
+                if let Some(path) = arg.and_then(|a| a.named_child(0)).and_then(|n| n.utf8_text(source).ok()) {
+                    let cleaned = path.trim_matches('"').trim_matches('\'').to_string();
+                    if !cleaned.is_empty() {
+                        result.imports.push((
+                            cleaned.clone(),
+                            cleaned.clone(),
+                            "require".to_string(),
+                        ));
+                        result.references.push(ParsedReference {
+                            caller_symbol: None,
+                            callee_symbol: cleaned,
+                            ref_kind: "import".to_string(),
+                            line: node.start_position().row + 1,
+                        });
+                    }
+                }
+            } else if !callee.is_empty() {
                 result.references.push(ParsedReference {
                     caller_symbol: None,
                     callee_symbol: callee,

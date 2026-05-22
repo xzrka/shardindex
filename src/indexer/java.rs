@@ -200,10 +200,8 @@ impl JavaParser {
     }
 
     fn extract_import(node: &Node, source: &[u8], result: &mut ParseResult) {
-        let imported_name = node
-            .child_by_field_name("name")
-            .and_then(|n| n.utf8_text(source).ok())
-            .map(|s| s.to_string());
+        // Java: first named child is scoped_identifier (or identifier)
+        let imported_name = node.named_child(0).and_then(|n| n.utf8_text(source).ok());
         if let Some(name) = imported_name {
             let cleaned = name.trim_end_matches('.').to_string();
             result.imports.push((

@@ -170,9 +170,23 @@ impl LuaParser {
 
     fn extract_calls(node: &Node, source: &[u8], result: &mut ParseResult) {
         if node.kind() == "function_call" {
-            let func = node.child_by_field_name("function");
+            let func = node.child_by_field_name("name");
             if let Some(name) = func.and_then(|n| n.utf8_text(source).ok()) {
                 let callee = name.to_string();
+                // treat require() as import
+                if callee == "require" {
+                    let args = node.child_by_field_name("arguments");
+                    if let Some(arg_text) = args.and_then(|a| a.named_child(0))
+                        .and_then(|n| n.utf8_text(source).ok())
+                    {
+                        let mod_name = arg_text.trim_matches('"').trim_matches('\'').to_string();
+                        result.imports.push((
+                            mod_name.clone(),
+                            mod_name.clone(),
+                            "require".to_string(),
+                        ));
+                    }
+                }
                 if !callee.is_empty() {
                     result.references.push(ParsedReference {
                         caller_symbol: None,
