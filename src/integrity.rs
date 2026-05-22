@@ -9,7 +9,7 @@
 /// 4. `process_dirty(db, root, language)` — dirty 큐에서 대기 중인 파일들을 재인덱싱
 ///
 /// ## 워크플로우
-/// ```
+/// ```ignore
 /// 파일 변경 감지 (watcher)
 ///     → Blake3 hash 재계산
 ///     → DB checksum과 비교

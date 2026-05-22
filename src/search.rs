@@ -4,10 +4,12 @@
 ///
 /// ## Scoring formula
 ///
-///     final_score = fuzzy_score * fuzzy_weight
-///                 + kind_boost * kind_weight
-///                 + pagerank_normalized * rank_weight
-///                 + prefix_bonus
+/// ```ignore
+/// final_score = fuzzy_score * fuzzy_weight
+///             + kind_boost * kind_weight
+///             + pagerank_normalized * rank_weight
+///             + prefix_bonus
+/// ```
 ///
 /// - fuzzy_score: 0..1 (1 = exact match, based on Levenshtein similarity)
 /// - kind_boost:  0 or 1 (1 = kind_filter matches symbol kind)

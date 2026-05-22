@@ -1,0 +1,12 @@
+pub mod agent_cache;
+pub mod cli;
+pub mod config;
+pub mod daemon;
+pub mod database;
+pub mod graph;
+pub mod indexer;
+pub mod integrity;
+pub mod mcp;
+pub mod recovery;
+pub mod search;
+pub mod watcher;
