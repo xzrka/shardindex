@@ -10,6 +10,7 @@
 //! shardindex daemon                    # Start MCP server + file watcher
 //! shardindex search my_function        # Search symbols
 //! shardindex impact my_function        # Impact analysis
+//! shardindex rank                      # Compute symbol ranking
 //! ```
 
 mod cli;
@@ -24,6 +25,7 @@ use std::sync::{Arc, Mutex};
 use clap::Parser;
 use cli::{Cli, Commands};
 use database::IndexDb;
+use graph::PageRankConfig;
 use indexer::{Language, ProjectIndexer};
 use tracing::info;
 
@@ -58,6 +60,13 @@ async fn main() -> anyhow::Result<()> {
             db,
             output,
         } => cmd_graph(&db, symbol.as_deref(), output.as_deref())?,
+        Commands::Rank {
+            db,
+            damping,
+            max_iter,
+            tolerance,
+            top,
+        } => cmd_rank(&db, damping, max_iter, tolerance, top)?,
     }
 
     Ok(())
@@ -193,20 +202,25 @@ fn cmd_stats(db_path: &str) -> anyhow::Result<()> {
 
 fn cmd_search(db_path: &str, query: &str) -> anyhow::Result<()> {
     let db = IndexDb::open(db_path)?;
-    let results = db.search_symbol(query)?;
+    let results = db.search_symbol_ranked(query)?;
 
     println!(
         "🔍 Search '{}' — {} results",
         query,
         results.len()
     );
-    for sym in &results {
+    for (sym, rank) in &results {
+        let rank_str = match rank {
+            Some(r) => format!(" [PR: {:.4}]", r),
+            None => String::from(""),
+        };
         println!(
-            "  {}:{} {} [{}] {}",
+            "  {}:{} {} [{}]{}{}",
             sym.file_path,
             sym.start_line,
             sym.name,
             sym.kind,
+            rank_str,
             sym.signature.as_deref().unwrap_or("")
         );
     }
@@ -237,21 +251,33 @@ fn cmd_neighbors(db_path: &str, symbol: &str) -> anyhow::Result<()> {
 
 fn cmd_impact(db_path: &str, symbol: &str) -> anyhow::Result<()> {
     let db = IndexDb::open(db_path)?;
-    let (callers, refs) = db.impact(symbol)?;
+    let (callers, refs) = db.impact_ranked(symbol)?;
+
+    // 심볼 자체의 랭킹
+    let own_rank = db.symbol_rank(symbol);
+    let own_rank_str = match &own_rank {
+        Some(r) => format!(
+            " [PR: {:.4}  in:{}  out:{}]",
+            r.page_rank, r.in_degree, r.out_degree
+        ),
+        None => String::from(" (no rank computed — run 'rank' first)"),
+    };
 
     println!(
-        "💥 Impact analysis for '{}' — {} callers, {} refs",
-        symbol,
-        callers.len(),
-        refs.len()
+        "💥 Impact analysis for '{}'{} — {} callers, {} refs",
+        symbol, own_rank_str, callers.len(), refs.len()
     );
 
     if !callers.is_empty() {
-        println!("\n  Impacted symbols:");
-        for sym in &callers {
+        println!("\n  Impacted callers (sorted by PageRank):");
+        for (sym, rank) in &callers {
+            let rank_str = match rank {
+                Some(r) => format!(" [PR: {:.4}]", r),
+                None => String::from(""),
+            };
             println!(
-                "    {}:{} {} [{}]",
-                sym.file_path, sym.start_line, sym.name, sym.kind
+                "    {}:{} {} [{}]{}",
+                sym.file_path, sym.start_line, sym.name, sym.kind, rank_str
             );
         }
     }
@@ -276,6 +302,49 @@ fn cmd_graph(
         println!("Graph written to {}", path);
     } else {
         println!("{}", dot);
+    }
+
+    Ok(())
+}
+
+fn cmd_rank(
+    db_path: &str,
+    damping: f64,
+    max_iter: usize,
+    tolerance: f64,
+    top: usize,
+) -> anyhow::Result<()> {
+    let db = IndexDb::open(db_path)?;
+
+    let config = PageRankConfig {
+        damping,
+        max_iterations: max_iter,
+        tolerance,
+    };
+
+    println!("📊 Computing symbol ranking...");
+    println!(
+        "   Config: damping={}, max_iter={}, tolerance={}\n",
+        damping, max_iter, tolerance
+    );
+
+    graph::compute_and_store_ranks(&db, Some(&config))?;
+
+    // Top-N 출력
+    let ranked = db.ranked_symbols(top)?;
+
+    println!("🏆 Top {} Ranked Symbols ({} total)", top, ranked.len());
+    println!();
+
+    for (i, rank) in ranked.iter().enumerate() {
+        println!(
+            "  {}. {}  [PR: {:.6}  in: {}  out: {}]",
+            i + 1,
+            rank.symbol_name,
+            rank.page_rank,
+            rank.in_degree,
+            rank.out_degree
+        );
     }
 
     Ok(())

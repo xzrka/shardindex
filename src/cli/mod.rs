@@ -107,4 +107,27 @@ pub enum Commands {
         #[arg(long)]
         output: Option<String>,
     },
+
+    /// Compute symbol ranking (PageRank + degree centrality)
+    Rank {
+        /// Database path
+        #[arg(long, default_value = ".shardindex.db")]
+        db: String,
+
+        /// Damping factor (default: 0.85)
+        #[arg(long, default_value_t = 0.85)]
+        damping: f64,
+
+        /// Maximum iterations (default: 100)
+        #[arg(long, default_value_t = 100)]
+        max_iter: usize,
+
+        /// Convergence tolerance (default: 1e-6)
+        #[arg(long, default_value_t = 1e-6)]
+        tolerance: f64,
+
+        /// Show top N ranked symbols (default: 20)
+        #[arg(short, long, default_value_t = 20)]
+        top: usize,
+    },
 }

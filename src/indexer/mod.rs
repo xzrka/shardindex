@@ -2,7 +2,51 @@
 ///
 /// Incremental indexing: only reparse changed files. Supports multiple languages.
 
-pub mod ast;
+// Module declarations — each language parser in its own file
+pub mod types;
+mod python;
+mod javascript;
+mod r#rust;
+mod r#typecript;
+mod r#go;
+mod ruby;
+mod java;
+mod php;
+mod julia;
+mod lua;
+mod swift;
+mod zig;
+mod scala;
+mod elixir;
+mod dart;
+mod haskell;
+mod r#c;
+mod cpp;
+#[cfg(test)]
+mod tests;
+
+// Re-export types for convenience and test access
+#[allow(unused_imports)]
+pub use types::{SymbolKind, ParsedSymbol, ParsedReference, ParseResult, SourceCodeParser};
+// Re-export language parsers
+pub use python::PythonParser;
+pub use javascript::JavaScriptParser;
+pub use r#rust::RustParser;
+pub use r#typecript::TypeScriptParser;
+pub use r#go::GoParser;
+pub use ruby::RubyParser;
+pub use java::JavaParser;
+pub use php::PhpParser;
+pub use julia::JuliaParser;
+pub use lua::LuaParser;
+pub use swift::SwiftParser;
+pub use zig::ZigParser;
+pub use scala::ScalaParser;
+pub use elixir::ElixirParser;
+pub use dart::DartParser;
+pub use haskell::HaskellParser;
+pub use r#c::CParser;
+pub use cpp::CppParser;
 
 use std::collections::HashSet;
 use std::fs;
@@ -11,28 +55,55 @@ use anyhow::Context;
 use tracing::{info, debug, warn};
 
 use crate::database::{IndexDb, SymbolRecord};
-use ast::{GoParser, JavaScriptParser, PythonParser, RustParser, SourceCodeParser, TypeScriptParser};
 
 /// Supported language parsers
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Language {
     Python,
     JavaScript,
     Rust,
     TypeScript,
     Go,
+    Ruby,
+    Java,
+    Php,
+    Julia,
+    Lua,
+    Swift,
+    Zig,
+    Scala,
+    Elixir,
+    Dart,
+    Haskell,
+    C,
+    Cpp,
 }
 
 impl Language {
-    /// Detect language from file extension
+    /// Detect language from file path or extension string.
+    /// Accepts full paths ("src/file.py"), filenames ("file.py"), or bare extensions ("py").
     #[allow(dead_code)]
-    pub fn from_extension(ext: &str) -> Option<Self> {
+    pub fn from_extension(path: &str) -> Option<Self> {
+        let ext = path.rsplit('.').next().unwrap_or(path);
         match ext {
             "py" => Some(Language::Python),
             "js" | "jsx" | "mjs" | "cjs" => Some(Language::JavaScript),
             "rs" => Some(Language::Rust),
             "ts" | "tsx" | "mts" | "cts" => Some(Language::TypeScript),
             "go" => Some(Language::Go),
+            "rb" | "gemspec" => Some(Language::Ruby),
+            "java" => Some(Language::Java),
+            "php" => Some(Language::Php),
+            "jl" => Some(Language::Julia),
+            "lua" => Some(Language::Lua),
+            "swift" => Some(Language::Swift),
+            "zig" => Some(Language::Zig),
+            "scala" => Some(Language::Scala),
+            "ex" | "exs" => Some(Language::Elixir),
+            "dart" => Some(Language::Dart),
+            "hs" | "lhs" => Some(Language::Haskell),
+            "c" | "h" => Some(Language::C),
+            "cpp" | "hpp" | "cc" | "cxx" | "hxx" | "hh" => Some(Language::Cpp),
             _ => None,
         }
     }
@@ -44,6 +115,19 @@ impl Language {
             Language::Rust => "rust",
             Language::TypeScript => "typescript",
             Language::Go => "go",
+            Language::Ruby => "ruby",
+            Language::Java => "java",
+            Language::Php => "php",
+            Language::Julia => "julia",
+            Language::Lua => "lua",
+            Language::Swift => "swift",
+            Language::Zig => "zig",
+            Language::Scala => "scala",
+            Language::Elixir => "elixir",
+            Language::Dart => "dart",
+            Language::Haskell => "haskell",
+            Language::C => "c",
+            Language::Cpp => "cpp",
         }
     }
 
@@ -55,6 +139,19 @@ impl Language {
             Language::Rust => &["rs"],
             Language::TypeScript => &["ts", "tsx", "mts", "cts"],
             Language::Go => &["go"],
+            Language::Ruby => &["rb", "gemspec"],
+            Language::Java => &["java"],
+            Language::Php => &["php"],
+            Language::Julia => &["jl"],
+            Language::Lua => &["lua"],
+            Language::Swift => &["swift"],
+            Language::Zig => &["zig"],
+            Language::Scala => &["scala"],
+            Language::Elixir => &["ex", "exs"],
+            Language::Dart => &["dart"],
+            Language::Haskell => &["hs", "lhs"],
+            Language::C => &["c", "h"],
+            Language::Cpp => &["cpp", "hpp", "cc", "cxx", "hxx", "hh"],
         }
     }
 
@@ -66,9 +163,22 @@ impl Language {
             Language::Rust => Ok(Box::new(RustParser::new()?)),
             Language::TypeScript => Ok(Box::new(TypeScriptParser::new()?)),
             Language::Go => Ok(Box::new(GoParser::new()?)),
+            Language::Ruby => Ok(Box::new(RubyParser::new()?)),
+            Language::Java => Ok(Box::new(JavaParser::new()?)),
+            Language::Php => Ok(Box::new(PhpParser::new()?)),
+            Language::Julia => Ok(Box::new(JuliaParser::new()?)),
+            Language::Lua => Ok(Box::new(LuaParser::new()?)),
+            Language::Swift => Ok(Box::new(SwiftParser::new()?)),
+            Language::Zig => Ok(Box::new(ZigParser::new()?)),
+            Language::Scala => Ok(Box::new(ScalaParser::new()?)),
+            Language::Elixir => Ok(Box::new(ElixirParser::new()?)),
+            Language::Dart => Ok(Box::new(DartParser::new()?)),
+            Language::Haskell => Ok(Box::new(HaskellParser::new()?)),
+            Language::C => Ok(Box::new(CParser::new()?)),
+            Language::Cpp => Ok(Box::new(CppParser::new()?)),
         }
     }
-    
+
     /// All supported extensions (for auto-detection in multi-lang mode)
     #[allow(dead_code)]
     pub fn all_extensions() -> &'static [(&'static str, Language)] {
@@ -84,6 +194,28 @@ impl Language {
             ("mts", Language::TypeScript),
             ("cts", Language::TypeScript),
             ("go", Language::Go),
+            ("rb", Language::Ruby),
+            ("gemspec", Language::Ruby),
+            ("java", Language::Java),
+            ("php", Language::Php),
+            ("jl", Language::Julia),
+            ("lua", Language::Lua),
+            ("swift", Language::Swift),
+            ("zig", Language::Zig),
+            ("scala", Language::Scala),
+            ("ex", Language::Elixir),
+            ("exs", Language::Elixir),
+            ("dart", Language::Dart),
+            ("hs", Language::Haskell),
+            ("lhs", Language::Haskell),
+            ("c", Language::C),
+            ("h", Language::C),
+            ("cpp", Language::Cpp),
+            ("hpp", Language::Cpp),
+            ("cc", Language::Cpp),
+            ("cxx", Language::Cpp),
+            ("hxx", Language::Cpp),
+            ("hh", Language::Cpp),
         ]
     }
 }

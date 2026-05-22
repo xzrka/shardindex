@@ -43,6 +43,16 @@ pub struct ReferenceRecord {
     pub line: usize,
 }
 
+/// 심볼 랭킹 스코어 (PageRank + degree centrality)
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct SymbolRank {
+    pub symbol_name: String,
+    pub page_rank: f64,
+    pub in_degree: i64,
+    pub out_degree: i64,
+    pub computed_at: String,
+}
+
 pub struct IndexDb {
     pub conn: Connection,
 }
@@ -230,15 +240,7 @@ impl IndexDb {
 
     /// 심볼 영향도 분석 — 이 심볼을 사용하는 모든 파일/심볼
     pub fn impact(&self, symbol_name: &str) -> Result<(Vec<SymbolRecord>, Vec<ReferenceRecord>), anyhow::Error> {
-        // 직접 호출하는 심볼들
-        let refs = self.conn.query_row(
-            r#"SELECT GROUP_CONCAT(DISTINCT caller_symbol)
-               FROM reference WHERE callee_symbol = ?1"#,
-            params![symbol_name],
-            |row| row.get::<_, String>(0),
-        ).ok();
-
-        let callers: Vec<SymbolRecord> = if let Some(_callers_str) = refs {
+        let callers: Vec<SymbolRecord> = {
             let mut stmt = self.conn.prepare(
                 r#"SELECT id, file_path, name, kind, start_line, end_line, start_col, end_col, signature, docstring, parent_symbol
                    FROM symbol WHERE name IN (SELECT DISTINCT caller_symbol FROM reference WHERE callee_symbol = ?1)
@@ -259,9 +261,89 @@ impl IndexDb {
                     parent_symbol: row.get(10)?,
                 })
             })?.collect::<Result<Vec<_>, _>>()?
-        } else {
-            Vec::new()
         };
+
+        let all_refs = self.neighbors(symbol_name)?;
+        Ok((callers, all_refs))
+    }
+
+    /// 심볼명 검색 (랭킹 기반 정렬)
+    pub fn search_symbol_ranked(
+        &self,
+        pattern: &str,
+    ) -> Result<Vec<(SymbolRecord, Option<f64>)>, anyhow::Error> {
+        let search = format!("%{}%", pattern);
+        let mut stmt = self.conn.prepare(
+            "SELECT s.id, s.file_path, s.name, s.kind, s.start_line, s.end_line, s.start_col, s.end_col,
+                    s.signature, s.docstring, s.parent_symbol, sr.page_rank
+             FROM symbol s
+             LEFT JOIN symbol_rank sr ON s.name = sr.symbol_name
+             WHERE s.name LIKE ?1
+             ORDER BY sr.page_rank DESC NULLS LAST, s.kind, s.name
+             LIMIT 50"
+        )?;
+        let records = stmt.query_map(params![search], |row| {
+            Ok((
+                SymbolRecord {
+                    id: row.get(0)?,
+                    file_path: row.get(1)?,
+                    name: row.get(2)?,
+                    kind: row.get(3)?,
+                    start_line: row.get(4)?,
+                    end_line: row.get(5)?,
+                    start_col: row.get(6)?,
+                    end_col: row.get(7)?,
+                    signature: row.get(8)?,
+                    docstring: row.get(9)?,
+                    parent_symbol: row.get(10)?,
+                },
+                row.get::<_, Option<f64>>(11)?,
+            ))
+        })?;
+        Ok(records.collect::<Result<Vec<_>, _>>()?)
+    }
+
+    /// 심볼 영향도 분석 + 랭킹 정보 포함
+    pub fn impact_ranked(
+        &self,
+        symbol_name: &str,
+    ) -> Result<
+        (Vec<(SymbolRecord, Option<f64>)>, Vec<ReferenceRecord>),
+        anyhow::Error,
+    > {
+        // 직접 호출하는 심볼들 (랭킹 JOIN)
+        let mut stmt = self.conn.prepare(
+            r#"SELECT s.id, s.file_path, s.name, s.kind, s.start_line, s.end_line,
+                      s.start_col, s.end_col, s.signature, s.docstring, s.parent_symbol,
+                      sr.page_rank
+               FROM symbol s
+               LEFT JOIN symbol_rank sr ON s.name = sr.symbol_name
+               WHERE s.name IN (
+                   SELECT DISTINCT caller_symbol FROM reference WHERE callee_symbol = ?1
+               )
+               ORDER BY sr.page_rank DESC NULLS LAST
+               LIMIT 50"#,
+        )?;
+        let callers = stmt
+            .query_map(params![symbol_name], |row| {
+                Ok((
+                    SymbolRecord {
+                        id: row.get(0)?,
+                        file_path: row.get(1)?,
+                        name: row.get(2)?,
+                        kind: row.get(3)?,
+                        start_line: row.get(4)?,
+                        end_line: row.get(5)?,
+                        start_col: row.get(6)?,
+                        end_col: row.get(7)?,
+                        signature: row.get(8)?,
+                        docstring: row.get(9)?,
+                        parent_symbol: row.get(10)?,
+                    },
+                    row.get::<_, Option<f64>>(11)?,
+                ))
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
 
         let all_refs = self.neighbors(symbol_name)?;
         Ok((callers, all_refs))
@@ -269,15 +351,128 @@ impl IndexDb {
 
     /// 통계
     pub fn stats(&self) -> Result<(usize, usize, usize), anyhow::Error> {
-        let files: usize = self.conn.query_row(
-            "SELECT COUNT(*) FROM file_hash", [], |r| r.get(0)
-        ).unwrap_or(0);
-        let symbols: usize = self.conn.query_row(
-            "SELECT COUNT(*) FROM symbol", [], |r| r.get(0)
-        ).unwrap_or(0);
-        let refs: usize = self.conn.query_row(
-            "SELECT COUNT(*) FROM reference", [], |r| r.get(0)
-        ).unwrap_or(0);
+        let files: usize = self
+            .conn
+            .query_row("SELECT COUNT(*) FROM file_hash", [], |r| r.get(0))
+            .unwrap_or(0);
+        let symbols: usize = self
+            .conn
+            .query_row("SELECT COUNT(*) FROM symbol", [], |r| r.get(0))
+            .unwrap_or(0);
+        let refs: usize = self
+            .conn
+            .query_row("SELECT COUNT(*) FROM reference", [], |r| r.get(0))
+            .unwrap_or(0);
         Ok((files, symbols, refs))
+    }
+
+    // ─── Symbol Ranking ───
+
+    /// 랭킹 데이터 전체 조회 (page_rank 내림차순)
+    pub fn ranked_symbols(&self, limit: usize) -> Result<Vec<SymbolRank>, anyhow::Error> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT symbol_name, page_rank, in_degree, out_degree, computed_at FROM symbol_rank ORDER BY page_rank DESC LIMIT ?1")?;
+        let records = stmt.query_map(params![limit], |row| {
+            Ok(SymbolRank {
+                symbol_name: row.get(0)?,
+                page_rank: row.get(1)?,
+                in_degree: row.get(2)?,
+                out_degree: row.get(3)?,
+                computed_at: row.get(4)?,
+            })
+        })?;
+        Ok(records.collect::<Result<Vec<_>, _>>()?)
+    }
+
+    /// 심볼 이름으로 랭킹 조회
+    pub fn symbol_rank(&self, symbol_name: &str) -> Option<SymbolRank> {
+        self.conn
+            .query_row(
+                "SELECT symbol_name, page_rank, in_degree, out_degree, computed_at FROM symbol_rank WHERE symbol_name = ?1",
+                params![symbol_name],
+                |row| Ok(SymbolRank {
+                    symbol_name: row.get(0)?,
+                    page_rank: row.get(1)?,
+                    in_degree: row.get(2)?,
+                    out_degree: row.get(3)?,
+                    computed_at: row.get(4)?,
+                }),
+            )
+            .ok()
+    }
+
+    /// 랭킹 스코어 저장 (UPSERT)
+    pub fn upsert_rank(&self, rank: &SymbolRank) -> Result<(), anyhow::Error> {
+        self.conn.execute(
+            r#"INSERT INTO symbol_rank (symbol_name, page_rank, in_degree, out_degree, computed_at)
+               VALUES (?1, ?2, ?3, ?4, ?5)
+               ON CONFLICT(symbol_name) DO UPDATE SET
+                 page_rank = excluded.page_rank,
+                 in_degree = excluded.in_degree,
+                 out_degree = excluded.out_degree,
+                 computed_at = excluded.computed_at"#,
+            params![
+                rank.symbol_name,
+                rank.page_rank,
+                rank.in_degree,
+                rank.out_degree,
+                rank.computed_at,
+            ],
+        )?;
+        Ok(())
+    }
+
+    /// 랭킹 테이블 전체 삭제 (재인dex 후)
+    pub fn clear_ranks(&self) -> Result<(), anyhow::Error> {
+        self.conn.execute("DELETE FROM symbol_rank", [])?;
+        Ok(())
+    }
+
+    /// degree centrality 계산 (reference 테이블에서)
+    pub fn compute_degrees(&self) -> Result<Vec<(String, i64, i64)>, anyhow::Error> {
+        // in_degree: callee로서 참조되는 횟수
+        // out_degree: caller로서 참조하는 횟수
+        let mut stmt = self.conn.prepare(
+            r#"SELECT
+                 s.name,
+                 COALESCE(ind.in_deg, 0) AS in_degree,
+                 COALESCE(outd.out_deg, 0) AS out_degree
+               FROM symbol s
+               LEFT JOIN (
+                 SELECT callee_symbol, COUNT(*) AS in_deg
+                 FROM reference
+                 GROUP BY callee_symbol
+               ) ind ON s.name = ind.callee_symbol
+               LEFT JOIN (
+                 SELECT caller_symbol, COUNT(*) AS out_deg
+                 FROM reference
+                 WHERE caller_symbol IS NOT NULL
+                 GROUP BY caller_symbol
+               ) outd ON s.name = outd.caller_symbol
+               ORDER BY in_degree DESC, out_degree DESC"#,
+        )?;
+        let records = stmt.query_map(params![], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, i64>(1)?,
+                row.get::<_, i64>(2)?,
+            ))
+        })?;
+        Ok(records.collect::<Result<Vec<_>, _>>()?)
+    }
+
+    /// PageRank 계산에 필요한 인접 리스트: (source, target) edges
+    pub fn graph_edges(&self) -> Result<Vec<(String, String)>, anyhow::Error> {
+        let mut stmt = self.conn.prepare(
+            r#"SELECT caller_symbol, callee_symbol
+               FROM reference
+               WHERE caller_symbol IS NOT NULL
+               AND caller_symbol != ''"#,
+        )?;
+        let records = stmt.query_map(params![], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })?;
+        Ok(records.collect::<Result<Vec<_>, _>>()?)
     }
 }

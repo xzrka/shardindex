@@ -1477,7 +1477,7 @@ fn bench_search_semantic(b: &mut Bencher) {
 | 9 | tree-sitter-rust backend |
 | 10 | Go native parser bridge |
 | 10 | tree-sitter-javascript backend |
-| 11 | Graph ranking (PageRank-style symbol importance) |
+| 11 | Graph ranking (PageRank-style symbol importance) ✅ DONE |\
 | 11 | Advanced search (fuzzy + semantic hybrid) |
 | 12 | Override registry UI / CLI |
 

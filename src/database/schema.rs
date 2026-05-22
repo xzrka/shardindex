@@ -70,9 +70,35 @@ CREATE INDEX IF NOT EXISTS idx_symbol_kind ON symbol(kind);
 CREATE INDEX IF NOT EXISTS idx_ref_callee ON reference(callee_symbol);
 CREATE INDEX IF NOT EXISTS idx_ref_caller ON reference(caller_file);
 CREATE INDEX IF NOT EXISTS idx_import_imported ON file_imports(imported);
+
+-- 그래프 랭킹 (PageRank + degree centrality)
+CREATE TABLE IF NOT EXISTS symbol_rank (
+    symbol_name   TEXT PRIMARY KEY,
+    page_rank     REAL NOT NULL DEFAULT 0.0,
+    in_degree     INTEGER NOT NULL DEFAULT 0,
+    out_degree    INTEGER NOT NULL DEFAULT 0,
+    computed_at   TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_symbol_rank_pr ON symbol_rank(page_rank DESC);
+CREATE INDEX IF NOT EXISTS idx_symbol_rank_in ON symbol_rank(in_degree DESC);
+"#;
+
+pub const MIGRATION_RANK_SQL: &str = r#"
+-- Migration: add symbol_rank table (may already exist from SCHEMA_SQL)
+CREATE TABLE IF NOT EXISTS symbol_rank (
+    symbol_name   TEXT PRIMARY KEY,
+    page_rank     REAL NOT NULL DEFAULT 0.0,
+    in_degree     INTEGER NOT NULL DEFAULT 0,
+    out_degree    INTEGER NOT NULL DEFAULT 0,
+    computed_at   TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ'))
+);
+CREATE INDEX IF NOT EXISTS idx_symbol_rank_pr ON symbol_rank(page_rank DESC);
+CREATE INDEX IF NOT EXISTS idx_symbol_rank_in ON symbol_rank(in_degree DESC);
 "#;
 
 pub fn init_db(conn: &rusqlite::Connection) -> Result<(), anyhow::Error> {
     conn.execute_batch(SCHEMA_SQL)?;
+    conn.execute_batch(MIGRATION_RANK_SQL)?;
     Ok(())
 }
