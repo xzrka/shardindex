@@ -31,15 +31,20 @@ use anyhow::Context;
               imports: Vec::new(),
           };
 
-          Self::walk_node(&root, source_bytes, &mut result, None);
+          Self::walk_node(&root, source_bytes, &mut result, None, None);
           Ok(result)
       }
 
+      /// Walk the AST, tracking current class parent and current function context.
+      ///
+      /// - `parent`: enclosing class name (for method detection + qualified_name)
+      /// - `current_function`: enclosing function/method name (for caller_symbol on calls)
       fn walk_node(
           node: &Node,
           source: &[u8],
           result: &mut ParseResult,
           parent: Option<String>,
+          current_function: Option<String>,
       ) {
           let kind = node.kind();
 
@@ -59,8 +64,8 @@ use anyhow::Context;
               _ => {}
           }
 
-          // Extract call references
-          Self::extract_calls(node, source, result);
+          // Extract call references with caller_symbol context
+          Self::extract_calls(node, source, result, current_function.as_deref());
 
           // Recurse into children
           let mut cursor = node.walk();
@@ -73,7 +78,18 @@ use anyhow::Context;
               } else {
                   parent.clone()
               };
-              Self::walk_node(&child, source, result, new_parent);
+
+              // Update current_function if entering a function definition
+              let new_function = if child.kind() == "function_definition" {
+                  child
+                      .child_by_field_name("name")
+                      .and_then(|n| n.utf8_text(source).ok())
+                      .map(|s| s.to_string())
+              } else {
+                  current_function.clone()
+              };
+
+              Self::walk_node(&child, source, result, new_parent, new_function);
           }
       }
 
@@ -241,24 +257,29 @@ use anyhow::Context;
           }
       }
 
-      fn extract_calls(node: &Node, source: &[u8], result: &mut ParseResult) {
-          let mut cursor = node.walk();
-          for child in node.children(&mut cursor) {
-              if child.kind() == "call" {
-                  if let Some(func) = child.child_by_field_name("function") {
-                      let callee = func.utf8_text(source).unwrap_or("").to_string();
-                      if !callee.is_empty() {
-                          result.references.push(ParsedReference {
-                              caller_symbol: None,
-                              callee_symbol: callee,
-                              ref_kind: "call".to_string(),
-                              line: child.start_position().row + 1,
-                          });
-                      }
-                  }
-              }
-          }
-      }
+   fn extract_calls(
+        node: &Node,
+        source: &[u8],
+        result: &mut ParseResult,
+        caller: Option<&str>,
+    ) {
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            if child.kind() == "call" {
+                if let Some(func) = child.child_by_field_name("function") {
+                    let callee = func.utf8_text(source).unwrap_or("").to_string();
+                    if !callee.is_empty() {
+                        result.references.push(ParsedReference {
+                            caller_symbol: caller.map(|s| s.to_string()),
+                            callee_symbol: callee,
+                            ref_kind: "call".to_string(),
+                            line: child.start_position().row + 1,
+                        });
+                    }
+                }
+            }
+        }
+    }
 
       fn extract_docstring(node: &Node, source: &[u8]) -> Option<String> {
           let mut cursor = node.walk();

@@ -175,6 +175,17 @@ pub enum Commands {
         #[arg(long)]
         language: Option<String>,
     },
+
+    /// Start MCP stdio server (for Hermes Agent / MCP clients)
+    McpServer {
+        /// Database path
+        #[arg(long, default_value = ".shardindex.db")]
+        db: String,
+
+        /// Cache TTL in seconds (default: 300)
+        #[arg(long, default_value_t = 300)]
+        cache_ttl: u64,
+    },
 }
 
 #[derive(Subcommand, Debug)]

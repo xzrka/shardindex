@@ -32,11 +32,11 @@ impl JavaParser {
             imports: Vec::new(),
         };
 
-        Self::walk_node(&root, source_bytes, &mut result, None);
+        Self::walk_node(&root, source_bytes, &mut result, None, None);
         Ok(result)
     }
 
-    fn walk_node(node: &Node, source: &[u8], result: &mut ParseResult, parent: Option<String>) {
+    fn walk_node(node: &Node, source: &[u8], result: &mut ParseResult, parent: Option<String>, current_function: Option<String>) {
         let kind = node.kind();
 
         match kind {
@@ -61,6 +61,9 @@ impl JavaParser {
             _ => {}
         }
 
+        // Extract call references
+        Self::extract_calls(node, source, result, current_function.as_deref());
+
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
             let new_parent = match kind {
@@ -70,7 +73,14 @@ impl JavaParser {
                     .map(|s| s.to_string()),
                 _ => parent.clone(),
             };
-            Self::walk_node(&child, source, result, new_parent);
+            let new_function = match child.kind() {
+                "method_declaration" | "constructor_declaration" => child
+                    .child_by_field_name("name")
+                    .and_then(|n| n.utf8_text(source).ok())
+                    .map(|s| s.to_string()),
+                _ => current_function.clone(),
+            };
+            Self::walk_node(&child, source, result, new_parent, new_function);
         }
     }
 
@@ -112,7 +122,6 @@ impl JavaParser {
             parent: parent.map(|s| s.to_string()),
         });
 
-        Self::extract_calls(node, source, result);
     }
 
     fn extract_class(node: &Node, source: &[u8], result: &mut ParseResult, parent: Option<&str>) {
@@ -271,14 +280,14 @@ impl JavaParser {
         });
     }
 
-    fn extract_calls(node: &Node, source: &[u8], result: &mut ParseResult) {
+    fn extract_calls(node: &Node, source: &[u8], result: &mut ParseResult, caller: Option<&str>) {
         if node.kind() == "method_invocation" {
             let method_selector = node.child_by_field_name("selector");
             if let Some(callee) = method_selector.and_then(|n| n.utf8_text(source).ok()) {
                 let callee = callee.to_string();
                 if !callee.is_empty() {
                     result.references.push(ParsedReference {
-                        caller_symbol: None,
+                        caller_symbol: caller.map(|s| s.to_string()),
                         callee_symbol: callee,
                         ref_kind: "call".to_string(),
                         line: node.start_position().row + 1,
@@ -289,7 +298,7 @@ impl JavaParser {
 
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
-            Self::extract_calls(&child, source, result);
+            Self::extract_calls(&child, source, result, caller);
         }
     }
 }

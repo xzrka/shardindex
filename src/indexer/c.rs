@@ -32,11 +32,11 @@ impl CParser {
             imports: Vec::new(),
         };
 
-        Self::walk_node(&root, source_bytes, &mut result, None);
+        Self::walk_node(&root, source_bytes, &mut result, None, None);
         Ok(result)
     }
 
-    fn walk_node(node: &Node, source: &[u8], result: &mut ParseResult, parent: Option<String>) {
+    fn walk_node(node: &Node, source: &[u8], result: &mut ParseResult, parent: Option<String>, current_function: Option<String>) {
         let kind = node.kind();
 
         match kind {
@@ -67,7 +67,23 @@ impl CParser {
                     .map(|s| s.to_string()),
                 _ => parent.clone(),
             };
-            Self::walk_node(&child, source, result, new_parent);
+            let new_function = match child.kind() {
+                "function_definition" => child
+                    .child_by_field_name("declarator")
+                    .and_then(|decl_node| {
+                        let mut d_cursor = decl_node.walk();
+                        for d_child in decl_node.children(&mut d_cursor) {
+                            if d_child.kind() == "identifier" {
+                                if let Ok(name) = d_child.utf8_text(source) {
+                                    return Some(name.to_string());
+                                }
+                            }
+                        }
+                        None
+                    }),
+                _ => current_function.clone(),
+            };
+            Self::walk_node(&child, source, result, new_parent, new_function);
         }
     }
 
@@ -113,7 +129,6 @@ impl CParser {
             parent: parent.map(|s| s.to_string()),
         });
 
-        Self::extract_calls(node, source, result);
     }
 
     fn extract_function_name(declarator: &str) -> Option<String> {
@@ -224,14 +239,14 @@ impl CParser {
         }
     }
 
-    fn extract_calls(node: &Node, source: &[u8], result: &mut ParseResult) {
+    fn extract_calls(node: &Node, source: &[u8], result: &mut ParseResult, caller: Option<&str>) {
         if node.kind() == "call_expression" {
             let function = node.child_by_field_name("function");
             if let Some(callee) = function.and_then(|n| n.utf8_text(source).ok()) {
                 let callee = callee.to_string();
                 if !callee.is_empty() {
                     result.references.push(ParsedReference {
-                        caller_symbol: None,
+                        caller_symbol: caller.map(|s| s.to_string()),
                         callee_symbol: callee,
                         ref_kind: "call".to_string(),
                         line: node.start_position().row + 1,
@@ -243,7 +258,7 @@ impl CParser {
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
             if child.kind() == "call_expression" {
-                Self::extract_calls(&child, source, result);
+                Self::extract_calls(&child, source, result, caller);
             }
         }
     }

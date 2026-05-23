@@ -2,6 +2,8 @@
 ///
 /// 노출 API: read, neighbors, impact, search, graph, stats, edit_plan, verify
 
+pub mod stdio;
+
 use axum::{
     extract::State,
     http::StatusCode,

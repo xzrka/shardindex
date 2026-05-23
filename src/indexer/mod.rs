@@ -422,6 +422,7 @@ impl ProjectIndexer {
         // Store symbols
         let mut symbol_count = 0;
         for sym in &result.symbols {
+            let qualified_name = SymbolRecord::build_qualified_name(&relative, &sym.name, &sym.parent);
             let _id = self.db.insert_symbol(&SymbolRecord {
                 id: 0,
                 file_path: relative.clone(),
@@ -434,6 +435,7 @@ impl ProjectIndexer {
                 signature: sym.signature.clone(),
                 docstring: sym.docstring.clone(),
                 parent_symbol: sym.parent.clone(),
+                qualified_name,
             })?;
             symbol_count += 1;
         }

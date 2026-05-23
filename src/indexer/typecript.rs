@@ -30,16 +30,17 @@ use anyhow::Context;
               imports: Vec::new(),
           };
 
-          Self::walk_node(&root, source_bytes, &mut result, None);
-          Ok(result)
-      }
+       Self::walk_node(&root, source_bytes, &mut result, None, None);
+        Ok(result)
+    }
 
-      fn walk_node(
-          node: &Node,
-          source: &[u8],
-          result: &mut ParseResult,
-          parent: Option<String>,
-      ) {
+    fn walk_node(
+        node: &Node,
+        source: &[u8],
+        result: &mut ParseResult,
+        parent: Option<String>,
+        current_function: Option<String>,
+    ) {
           let kind = node.kind();
 
           match kind {
@@ -83,22 +84,38 @@ use anyhow::Context;
               _ => {}
           }
 
-          // Extract call references
-          Self::extract_calls(node, source, result);
+       // Extract call references
+        Self::extract_calls(node, source, result, current_function.as_deref());
 
-          // Recurse into children
-          let mut cursor = node.walk();
-          for child in node.children(&mut cursor) {
-              let new_parent = if child.kind() == "class_declaration" {
-                  child
-                      .child_by_field_name("name")
-                      .and_then(|n| n.utf8_text(source).ok())
-                      .map(|s| s.to_string())
-              } else {
-                  parent.clone()
-              };
-              Self::walk_node(&child, source, result, new_parent);
-          }
+      // Recurse into children
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            let new_parent = if child.kind() == "class_declaration" {
+                child
+                    .child_by_field_name("name")
+                    .and_then(|n| n.utf8_text(source).ok())
+                    .map(|s| s.to_string())
+            } else {
+                parent.clone()
+            };
+            let new_function = match child.kind() {
+                "function_declaration" => {
+                    child
+                        .child_by_field_name("name")
+                        .and_then(|n| n.utf8_text(source).ok())
+                        .map(|s| s.to_string())
+                }
+                "method_definition" | "abstract_method_definition" => {
+                    child
+                        .child_by_field_name("key")
+                        .and_then(|n| n.utf8_text(source).ok())
+                        .map(|s| s.to_string())
+                }
+                "arrow_function" | "generator_function" => current_function.clone(),
+                _ => current_function.clone(),
+            };
+            Self::walk_node(&child, source, result, new_parent, new_function);
+        }
       }
 
       fn extract_function(
@@ -490,26 +507,26 @@ use anyhow::Context;
           });
       }
 
-      fn extract_calls(node: &Node, source: &[u8], result: &mut ParseResult) {
-          let mut cursor = node.walk();
-          for child in node.children(&mut cursor) {
-              if child.kind() == "call_expression" {
-                  if let Some(func) = child.child_by_field_name("function") {
-                      let callee = func.utf8_text(source).unwrap_or("").to_string();
-                      if !callee.is_empty() {
-                          result.references.push(ParsedReference {
-                              caller_symbol: None,
-                              callee_symbol: callee,
-                              ref_kind: "call".to_string(),
-                              line: child.start_position().row + 1,
-                          });
-                      }
-                  }
-              }
-              // Recurse
-              Self::extract_calls(&child, source, result);
-          }
-      }
+   fn extract_calls(node: &Node, source: &[u8], result: &mut ParseResult, caller: Option<&str>) {
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            if child.kind() == "call_expression" {
+                if let Some(func) = child.child_by_field_name("function") {
+                    let callee = func.utf8_text(source).unwrap_or("").to_string();
+                    if !callee.is_empty() {
+                        result.references.push(ParsedReference {
+                            caller_symbol: caller.map(|s| s.to_string()),
+                            callee_symbol: callee,
+                            ref_kind: "call".to_string(),
+                            line: child.start_position().row + 1,
+                        });
+                    }
+                }
+            }
+            // Recurse
+            Self::extract_calls(&child, source, result, caller);
+        }
+    }
   }
 
   impl SourceCodeParser for TypeScriptParser {

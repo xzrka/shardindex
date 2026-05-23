@@ -102,44 +102,31 @@ pub fn run(db_path: &str, cache_ttl: u64) -> anyhow::Result<()> {
             }
         };
 
-        let response = server.handle_request(request);
-        let _ = writeln!(writer, "{}", serde_json::to_string(&response).unwrap());
-        let _ = writer.flush();
+        if let Some(response) = server.handle_request(request) {
+            let _ = writeln!(writer, "{}", serde_json::to_string(&response).unwrap());
+            let _ = writer.flush();
+        }
     }
 
     Ok(())
 }
 
 impl StdioMcpServer {
-    fn handle_request(&self, req: McpRequest) -> McpResponse {
+    fn handle_request(&self, req: McpRequest) -> Option<McpResponse> {
         match req.method.as_str() {
-            "initialize" => self.handle_initialize(req.params, req.id),
+            "initialize" => Some(self.handle_initialize(req.params, req.id)),
             "notifications/initialized" => {
-                // Notification — no response needed per MCP spec
-                McpResponse {
-                    jsonrpc: "2.0".into(),
-                    result: None,
-                    error: None,
-                    id: None,
-                }
+                // Notification — no response per MCP spec
+                None
             }
-            "tools/list" => self.handle_tools_list(req.params, req.id),
-            "tools/call" => self.handle_tools_call(req.params, req.id),
-            "ping" => McpResponse::ok(req.id, serde_json::json!({})),
+            "tools/list" => Some(self.handle_tools_list(req.params, req.id)),
+            "tools/call" => Some(self.handle_tools_call(req.params, req.id)),
+            "ping" => Some(McpResponse::ok(req.id, serde_json::json!({}))),
             "logging/message" => {
                 // Notification — ignore
-                McpResponse {
-                    jsonrpc: "2.0".into(),
-                    result: None,
-                    error: None,
-                    id: None,
-                }
+                None
             }
-            unknown => McpResponse::err(
-                req.id,
-                -32601,
-                &format!("Method not found: {}", unknown),
-            ),
+            unknown => Some(McpResponse::err(req.id, -32601, &format!("Method not found: {}", unknown))),
         }
     }
 

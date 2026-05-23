@@ -30,16 +30,17 @@ use anyhow::Context;
               imports: Vec::new(),
           };
 
-          Self::walk_node(&root, source_bytes, &mut result, None);
+          Self::walk_node(&root, source_bytes, &mut result, None, None);
           Ok(result)
       }
 
-      fn walk_node(
-          node: &Node,
-          source: &[u8],
-          result: &mut ParseResult,
-          parent: Option<String>,
-      ) {
+    fn walk_node(
+        node: &Node,
+        source: &[u8],
+        result: &mut ParseResult,
+        parent: Option<String>,
+        current_function: Option<String>,
+    ) {
           let kind = node.kind();
 
           match kind {
@@ -66,7 +67,7 @@ use anyhow::Context;
           }
 
           // Extract call references
-          Self::extract_calls(node, source, result);
+          Self::extract_calls(node, source, result, current_function.as_deref());
 
           // Recurse into children
           let mut cursor = node.walk();
@@ -79,7 +80,26 @@ use anyhow::Context;
               } else {
                   parent.clone()
               };
-              Self::walk_node(&child, source, result, new_parent);
+              let new_function = match child.kind() {
+                  "function_declaration" | "generator_function" => {
+                      child
+                          .child_by_field_name("id")
+                          .and_then(|n| n.utf8_text(source).ok())
+                          .map(|s| s.to_string())
+                  }
+                  "method_definition" => {
+                      child
+                          .child_by_field_name("key")
+                          .and_then(|n| n.utf8_text(source).ok())
+                          .map(|s| s.to_string())
+                  }
+                  "arrow_function" => {
+                      // Keep the parent function name for arrow functions
+                      current_function.clone()
+                  }
+                  _ => current_function.clone(),
+              };
+              Self::walk_node(&child, source, result, new_parent, new_function);
           }
       }
 
@@ -491,7 +511,12 @@ use anyhow::Context;
           }
       }
 
-      fn extract_calls(node: &Node, source: &[u8], result: &mut ParseResult) {
+      fn extract_calls(
+          node: &Node,
+          source: &[u8],
+          result: &mut ParseResult,
+          caller: Option<&str>,
+      ) {
           let mut cursor = node.walk();
           for child in node.children(&mut cursor) {
               if child.kind() == "call_expression" {
@@ -499,7 +524,7 @@ use anyhow::Context;
                       let callee_text = callee.utf8_text(source).unwrap_or("").to_string();
                       if !callee_text.is_empty() {
                           result.references.push(ParsedReference {
-                              caller_symbol: None,
+                              caller_symbol: caller.map(|s| s.to_string()),
                               callee_symbol: callee_text,
                               ref_kind: "call".to_string(),
                               line: child.start_position().row + 1,

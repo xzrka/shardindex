@@ -30,6 +30,46 @@ pub struct SymbolRecord {
     pub signature: Option<String>,
     pub docstring: Option<String>,
     pub parent_symbol: Option<String>,
+    pub qualified_name: String,
+}
+
+impl SymbolRecord {
+    /// Build qualified name from file path, symbol name, and optional parent.
+    pub fn build_qualified_name(file_path: &str, name: &str, parent: &Option<String>) -> String {
+        let module = Self::module_name_from_path(file_path);
+        match parent {
+            Some(p) => format!("{}.{}.{}", module, p, name),
+            None => format!("{}.{}", module, name),
+        }
+    }
+
+    /// Extract module name from file path.
+    pub fn module_name_from_path(file_path: &str) -> String {
+        let path = std::path::Path::new(file_path);
+        let stem = path.components()
+            .filter_map(|comp| {
+                if comp.as_os_str() == "src" || comp.as_os_str() == "lib" {
+                    None
+                } else {
+                    Some(comp)
+                }
+            })
+            .collect::<std::path::PathBuf>();
+        let mut parts: Vec<String> = stem.components()
+            .filter_map(|comp| comp.as_os_str().to_str().map(|s| s.to_string()))
+            .collect();
+        if let Some(last) = parts.last_mut() {
+            if let Some(dot) = last.rfind('.') {
+                *last = last[..dot].to_string();
+            }
+        }
+        parts.retain(|p| p != "__init__");
+        if parts.is_empty() {
+            "root".to_string()
+        } else {
+            parts.join(".")
+        }
+    }
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -232,12 +272,12 @@ impl IndexDb {
     pub fn insert_symbol(&self, rec: &SymbolRecord) -> Result<i64, anyhow::Error> {
         let _id = self.conn.last_insert_rowid();
         self.conn.execute(
-            r#"INSERT INTO symbol (file_path, name, kind, start_line, end_line, start_col, end_col, signature, docstring, parent_symbol)
-               VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)"#,
+            r#"INSERT INTO symbol (file_path, name, kind, start_line, end_line, start_col, end_col, signature, docstring, parent_symbol, qualified_name)
+               VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)"#,
             params![
                 rec.file_path, rec.name, rec.kind,
                 rec.start_line, rec.end_line, rec.start_col, rec.end_col,
-                rec.signature, rec.docstring, rec.parent_symbol
+                rec.signature, rec.docstring, rec.parent_symbol, rec.qualified_name
             ],
         )?;
         Ok(self.conn.last_insert_rowid())
@@ -246,7 +286,7 @@ impl IndexDb {
     /// 파일의 모든 심볼 조회
     pub fn file_symbols(&self, file_path: &str) -> Result<Vec<SymbolRecord>, anyhow::Error> {
         let mut stmt = self.conn.prepare(
-            "SELECT id, file_path, name, kind, start_line, end_line, start_col, end_col, signature, docstring, parent_symbol
+            "SELECT id, file_path, name, kind, start_line, end_line, start_col, end_col, signature, docstring, parent_symbol, qualified_name
              FROM symbol WHERE file_path = ?1 ORDER BY start_line"
         )?;
         let records = stmt.query_map(params![file_path], |row| {
@@ -261,7 +301,8 @@ impl IndexDb {
                 end_col: row.get(7)?,
                 signature: row.get(8)?,
                 docstring: row.get(9)?,
-                parent_symbol: row.get(10)?,
+                parent_symbol: row.get::<_, Option<String>>(10)?,
+                qualified_name: row.get::<_, Option<String>>(11)?.unwrap_or_default(),
             })
         })?;
         Ok(records.collect::<Result<Vec<_>, _>>()?)
@@ -271,8 +312,8 @@ impl IndexDb {
     pub fn search_symbol(&self, pattern: &str) -> Result<Vec<SymbolRecord>, anyhow::Error> {
         let search = format!("%{}%", pattern);
         let mut stmt = self.conn.prepare(
-            "SELECT id, file_path, name, kind, start_line, end_line, start_col, end_col, signature, docstring, parent_symbol
-             FROM symbol WHERE name LIKE ?1 ORDER BY kind, name LIMIT 50"
+            "SELECT id, file_path, name, kind, start_line, end_line, start_col, end_col, signature, docstring, parent_symbol, qualified_name
+             FROM symbol WHERE name LIKE ?1 OR qualified_name LIKE ?1 ORDER BY kind, name LIMIT 50"
         )?;
         let records = stmt.query_map(params![search], |row| {
             Ok(SymbolRecord {
@@ -286,7 +327,8 @@ impl IndexDb {
                 end_col: row.get(7)?,
                 signature: row.get(8)?,
                 docstring: row.get(9)?,
-                parent_symbol: row.get(10)?,
+                parent_symbol: row.get::<_, Option<String>>(10)?,
+                qualified_name: row.get::<_, Option<String>>(11)?.unwrap_or_default(),
             })
         })?;
         Ok(records.collect::<Result<Vec<_>, _>>()?)
@@ -337,13 +379,24 @@ impl IndexDb {
 
     /// 심볼 영향도 분석 — 이 심볼을 사용하는 모든 파일/심볼
     pub fn impact(&self, symbol_name: &str) -> Result<(Vec<SymbolRecord>, Vec<ReferenceRecord>), anyhow::Error> {
+        let (filter_col, filter_arg) = if symbol_name.contains('.') {
+            ("qualified_name", symbol_name.to_string())
+        } else {
+            ("name", symbol_name.to_string())
+        };
+        let resolved_name: String = self.conn.query_row(
+            &format!("SELECT name FROM symbol WHERE {} = ?1 LIMIT 1", filter_col),
+            params![filter_arg],
+            |row| row.get(0),
+        ).unwrap_or_else(|_| symbol_name.to_string());
+
         let callers: Vec<SymbolRecord> = {
             let mut stmt = self.conn.prepare(
-                r#"SELECT id, file_path, name, kind, start_line, end_line, start_col, end_col, signature, docstring, parent_symbol
+                r#"SELECT id, file_path, name, kind, start_line, end_line, start_col, end_col, signature, docstring, parent_symbol, qualified_name
                    FROM symbol WHERE name IN (SELECT DISTINCT caller_symbol FROM reference WHERE callee_symbol = ?1)
                    LIMIT 50"#
             )?;
-            stmt.query_map(params![symbol_name], |row| {
+            stmt.query_map(params![resolved_name], |row| {
                 Ok(SymbolRecord {
                     id: row.get(0)?,
                     file_path: row.get(1)?,
@@ -353,14 +406,15 @@ impl IndexDb {
                     end_line: row.get(5)?,
                     start_col: row.get(6)?,
                     end_col: row.get(7)?,
-                    signature: row.get(8)?,
-                    docstring: row.get(9)?,
-                    parent_symbol: row.get(10)?,
+                    signature: row.get::<_, Option<String>>(8)?,
+                    docstring: row.get::<_, Option<String>>(9)?,
+                    parent_symbol: row.get::<_, Option<String>>(10)?,
+                    qualified_name: row.get::<_, Option<String>>(11)?.unwrap_or_default(),
                 })
             })?.collect::<Result<Vec<_>, _>>()?
         };
 
-        let all_refs = self.neighbors(symbol_name)?;
+        let all_refs = self.neighbors(&resolved_name)?;
         Ok((callers, all_refs))
     }
 
@@ -372,10 +426,10 @@ impl IndexDb {
         let search = format!("%{}%", pattern);
         let mut stmt = self.conn.prepare(
             "SELECT s.id, s.file_path, s.name, s.kind, s.start_line, s.end_line, s.start_col, s.end_col,
-                    s.signature, s.docstring, s.parent_symbol, sr.page_rank
+                    s.signature, s.docstring, s.parent_symbol, s.qualified_name, sr.page_rank
              FROM symbol s
              LEFT JOIN symbol_rank sr ON s.name = sr.symbol_name
-             WHERE s.name LIKE ?1
+             WHERE s.name LIKE ?1 OR s.qualified_name LIKE ?1
              ORDER BY sr.page_rank DESC NULLS LAST, s.kind, s.name
              LIMIT 50"
         )?;
@@ -392,9 +446,10 @@ impl IndexDb {
                     end_col: row.get(7)?,
                     signature: row.get(8)?,
                     docstring: row.get(9)?,
-                    parent_symbol: row.get(10)?,
+                    parent_symbol: row.get::<_, Option<String>>(10)?,
+                qualified_name: row.get::<_, Option<String>>(11)?.unwrap_or_default(),
                 },
-                row.get::<_, Option<f64>>(11)?,
+                row.get::<_, Option<f64>>(12)?,
             ))
         })?;
         Ok(records.collect::<Result<Vec<_>, _>>()?)
@@ -408,10 +463,21 @@ impl IndexDb {
         (Vec<(SymbolRecord, Option<f64>)>, Vec<ReferenceRecord>),
         anyhow::Error,
     > {
+        let (filter_col, filter_arg) = if symbol_name.contains('.') {
+            ("qualified_name", symbol_name.to_string())
+        } else {
+            ("name", symbol_name.to_string())
+        };
+        let resolved_name: String = self.conn.query_row(
+            &format!("SELECT name FROM symbol WHERE {} = ?1 LIMIT 1", filter_col),
+            params![filter_arg],
+            |row| row.get(0),
+        ).unwrap_or_else(|_| symbol_name.to_string());
+
         // 직접 호출하는 심볼들 (랭킹 JOIN)
         let mut stmt = self.conn.prepare(
             r#"SELECT s.id, s.file_path, s.name, s.kind, s.start_line, s.end_line,
-                      s.start_col, s.end_col, s.signature, s.docstring, s.parent_symbol,
+                      s.start_col, s.end_col, s.signature, s.docstring, s.parent_symbol, s.qualified_name,
                       sr.page_rank
                FROM symbol s
                LEFT JOIN symbol_rank sr ON s.name = sr.symbol_name
@@ -422,7 +488,7 @@ impl IndexDb {
                LIMIT 50"#,
         )?;
         let callers = stmt
-            .query_map(params![symbol_name], |row| {
+            .query_map(params![resolved_name], |row| {
                 Ok((
                     SymbolRecord {
                         id: row.get(0)?,
@@ -433,16 +499,17 @@ impl IndexDb {
                         end_line: row.get(5)?,
                         start_col: row.get(6)?,
                         end_col: row.get(7)?,
-                        signature: row.get(8)?,
-                        docstring: row.get(9)?,
-                        parent_symbol: row.get(10)?,
+                        signature: row.get::<_, Option<String>>(8)?,
+                        docstring: row.get::<_, Option<String>>(9)?,
+                        parent_symbol: row.get::<_, Option<String>>(10)?,
+                        qualified_name: row.get::<_, Option<String>>(11)?.unwrap_or_default(),
                     },
-                    row.get::<_, Option<f64>>(11)?,
+                    row.get::<_, Option<f64>>(12)?,
                 ))
             })?
             .collect::<Result<Vec<_>, _>>()?;
 
-        let all_refs = self.neighbors(symbol_name)?;
+        let all_refs = self.neighbors(&resolved_name)?;
         Ok((callers, all_refs))
     }
 
@@ -997,5 +1064,25 @@ impl IndexDb {
         })
         .context("query overrides_for_symbol")?;
         rows.collect::<Result<Vec<_>, _>>().context("collect overrides_for_symbol")
+    }
+}
+
+#[cfg(test)]
+mod qualified_name_tests {
+    use super::*;
+    
+    #[test]
+    fn test_module_name_from_path() {
+        assert_eq!(SymbolRecord::module_name_from_path("auth.py"), "auth");
+        assert_eq!(SymbolRecord::module_name_from_path("session.py"), "session");
+        assert_eq!(SymbolRecord::module_name_from_path("src/auth.py"), "auth");
+        assert_eq!(SymbolRecord::module_name_from_path("src/session.py"), "session");
+        assert_eq!(SymbolRecord::module_name_from_path("lib/session.py"), "session");
+    }
+    
+    #[test]
+    fn test_build_qualified_name() {
+        assert_eq!(SymbolRecord::build_qualified_name("auth.py", "login", &None), "auth.login");
+        assert_eq!(SymbolRecord::build_qualified_name("session.py", "create", &Some("Session".to_string())), "session.Session.create");
     }
 }

@@ -36,6 +36,7 @@ use tracing::info;
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt()
+        .with_writer(std::io::stderr)
         .with_env_filter("shardindex=debug,tower_http=info")
         .init();
 
@@ -75,6 +76,9 @@ async fn main() -> anyhow::Result<()> {
         } => cmd_rank(&db, damping, max_iter, tolerance, top)?,
         Commands::Override { command, db } => cmd_override(&db, command)?,
         Commands::Verify { symbols, db, language } => cmd_verify(&db, &symbols, language.as_deref())?,
+        Commands::McpServer { db, cache_ttl } => {
+            mcp::stdio::run(&db, cache_ttl)?;
+        }
     }
 
     Ok(())
