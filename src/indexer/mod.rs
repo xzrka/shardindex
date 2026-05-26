@@ -157,7 +157,7 @@ impl Language {
             Language::Dart => &["dart"],
             Language::Haskell => &["hs", "lhs"],
             Language::C => &["c", "h"],
-            Language::Cpp => &["cpp", "hpp", "cc", "cxx", "hxx", "hh"],
+            Language::Cpp => &["cpp", "hpp", "cc", "cxx", "hxx", "hh", "h"],
             Language::Markdown => &["md", "markdown", "mdown", "mkd"],
         }
     }

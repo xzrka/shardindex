@@ -354,7 +354,7 @@ impl SourceCodeParser for CppParser {
     }
 
     fn file_extensions(&self) -> &[&str] {
-        &["cpp", "hpp", "cc", "cxx", "hxx", "hh"]
+        &["cpp", "hpp", "cc", "cxx", "hxx", "hh", "h"]
     }
 
     fn parse(&mut self, source: &str) -> Result<ParseResult, anyhow::Error> {

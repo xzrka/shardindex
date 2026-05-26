@@ -145,8 +145,9 @@ fn parse_language(lang: &str) -> anyhow::Result<Option<Language>> {
         "haskell" | "hs" => Ok(Some(Language::Haskell)),
         "c" => Ok(Some(Language::C)),
         "cpp" | "c++" | "cc" | "cxx" => Ok(Some(Language::Cpp)),
+        "markdown" | "md" => Ok(Some(Language::Markdown)),
         _ => anyhow::bail!(
-            "Unsupported language '{}'. Supported: auto, python, javascript, typescript, rust, go, ruby, java, php, julia, lua, swift, zig, scala, elixir, dart, haskell, c, cpp",
+            "Unsupported language '{}'. Supported: auto, python, javascript, typescript, rust, go, ruby, java, php, julia, lua, swift, zig, scala, elixir, dart, haskell, c, cpp, markdown",
             lang
         ),
     }
