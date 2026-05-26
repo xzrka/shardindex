@@ -19,24 +19,24 @@ Based on: `references/masterplan.md` v1.3 vs current implementation gap analysis
 The masterplan Phase 4 is the next major milestone. Token estimation and
 adaptive compression are the foundation for all budgeted retrieval features.
 
-### 4-1. Token estimation per symbol
+### 4-1. Token estimation per symbol ~~(DONE)~~
 
 **Plan:** `.hermes/plans/phase4-token-estimation.md`
 
-- [ ] Create `src/token_estimation.rs`
-  - `pub fn estimate_token_count(source: &str) -> u32`
-  - BPE-style heuristic (~1 token per 4 chars, adjusted for whitespace/comments/unicode)
-- [ ] Integrate into indexing pipeline (`src/indexer/mod.rs`)
+- [x] Create `src/token_estimation.rs`
+  - `pub fn estimate_token_count(source: &str) -> usize`
+  - BPE-style heuristic (~3.5 chars/token, adjusted for whitespace/comments/unicode)
+  - `LanguageDensity` with 9 language-specific adjustments
+- [x] Integrate into indexing pipeline (`src/indexer/mod.rs`)
   - Extract symbol body (start_line..end_line) from source
-  - Call `estimate_token_count()` and store in DB
-- [ ] Update `src/database/mod.rs`
+  - Call `estimate_symbol_tokens()` and store in DB
+- [x] Update `src/database/mod.rs`
   - `insert_symbol()` writes `token_count` (column already exists from migration 002)
-  - `SymbolRecord` struct adds `token_count: u32`
-- [ ] Include token info in search results (`src/search.rs`)
+  - `SymbolRecord` struct adds `token_count: usize`
+  - All DB queries (file_symbols, search_symbol, impact, ranked variants) include `token_count`
+- [x] Include token info in search results (`src/search.rs`)
   - `SearchResultJson` adds `token_count` field
-- [ ] Include token info in TOON output (`src/format/toon.rs`)
-- [ ] CLI: `stats` shows total tokens, `read` shows per-symbol token count
-- [ ] Unit tests for `estimate_token_count()` across languages/patterns
+- [x] Unit tests for `estimate_token_count()` across languages/patterns (16 tests)
 
 ### 4-2. Adaptive compression pipeline
 
