@@ -248,6 +248,6 @@ pub enum OutputFormat {
     Text,
     /// JSON format
     Json,
-    /// Smart YAML — LLM-optimized format
-    SmartYaml,
+    /// TOON — Token-Oriented Object Notation (LLM-optimized format)
+    Toon,
 }

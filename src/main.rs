@@ -303,7 +303,7 @@ fn cmd_stats(db_path: &str, output_format: OutputFormat) -> anyhow::Result<()> {
         });
         let output = match output_format {
             OutputFormat::Json => serde_json::to_string_pretty(&json)?,
-            OutputFormat::SmartYaml => format::smart_yaml::to_smart_yaml(&json, false, true),
+            OutputFormat::Toon => format::toon::to_toon(&json, false, true),
             OutputFormat::Text => unreachable!(),
         };
         println!("{}", output);
@@ -672,7 +672,7 @@ fn cmd_rank(
 fn print_formatted(json: &serde_json::Value, output_format: OutputFormat) {
     let output = match output_format {
         OutputFormat::Json => serde_json::to_string_pretty(json).unwrap_or_default(),
-        OutputFormat::SmartYaml => format::smart_yaml::to_smart_yaml(json, false, true),
+        OutputFormat::Toon => format::toon::to_toon(json, false, true),
         OutputFormat::Text => unreachable!(),
     };
     println!("{}", output);

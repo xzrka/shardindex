@@ -9,7 +9,7 @@
 
 use crate::agent_cache::AgentCache;
 use crate::database::IndexDb;
-use crate::format::smart_yaml;
+use crate::format::toon;
 use crate::search::{self, SearchConfig};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -62,15 +62,15 @@ impl McpResponse {
         let content_format = format_hint.unwrap_or("json");
 
         match content_format {
-            "smart-yaml" | "smart-yaml-compact" => {
-                let is_compact = content_format == "smart-yaml-compact";
-                let yaml_text = smart_yaml::to_smart_yaml(result, is_compact, false);
+            "toon" | "toon-compact" => {
+                let is_compact = content_format == "toon-compact";
+                let toon_text = toon::to_toon(result, is_compact, false);
                 Self {
                     jsonrpc: "2.0".into(),
                     result: Some(serde_json::json!({
                         "content": [{
                             "type": "text",
-                            "text": yaml_text
+                            "text": toon_text
                         }],
                         "format": content_format
                     })),
@@ -194,9 +194,9 @@ impl StdioMcpServer {
                         "listChanged": false
                     },
                     "experimental": {
-                        "smartYaml": {
+                        "toon": {
                             "supported": true,
-                            "description": "Smart YAML output format for LLM-friendly responses"
+                            "description": "TOON output format for LLM-friendly responses"
                         }
                     }
                 },

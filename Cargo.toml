@@ -47,8 +47,8 @@ tokio = { version = "1", features = ["full"] }
 axum = { version = "0.8", features = ["json"] }
 tower = "0.5"
 
-# Smart YAML format (LLM-optimized output)
-serde_yaml = "0.9"
+# TOON format (LLM-optimized output, replaces Smart YAML)
+toon-format = { version = "0.5", default-features = false }
 
 # Dot graph output
 petgraph = { version = "0.8", optional = true }
