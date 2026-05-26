@@ -42,6 +42,8 @@ impl CppParser {
         match kind {
             "function_definition" => {
                 Self::extract_function(node, source, result, parent.as_deref());
+                // Extract function calls within this function
+                Self::extract_calls(node, source, result, current_function.as_deref());
             }
             "class_specifier" => {
                 Self::extract_class(node, source, result, parent.as_deref());
