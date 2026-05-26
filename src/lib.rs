@@ -3,6 +3,7 @@ pub mod cli;
 pub mod config;
 pub mod daemon;
 pub mod database;
+pub mod format;
 pub mod graph;
 pub mod indexer;
 pub mod integrity;

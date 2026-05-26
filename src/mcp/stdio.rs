@@ -9,8 +9,10 @@
 
 use crate::agent_cache::AgentCache;
 use crate::database::IndexDb;
+use crate::format::smart_yaml;
 use crate::search::{self, SearchConfig};
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::io::{self, BufRead, BufReader, BufWriter, Write};
 use std::path::Path;
 
@@ -27,17 +29,17 @@ struct McpRequest {
 }
 
 #[derive(Debug, Serialize)]
+struct McpError {
+    code: i32,
+    message: String,
+}
+
+#[derive(Debug, Serialize)]
 struct McpResponse {
     jsonrpc: String,
     result: Option<serde_json::Value>,
     error: Option<McpError>,
     id: Option<serde_json::Value>,
-}
-
-#[derive(Debug, Serialize)]
-struct McpError {
-    code: i32,
-    message: String,
 }
 
 impl McpResponse {
@@ -47,6 +49,36 @@ impl McpResponse {
             result: Some(result),
             error: None,
             id,
+        }
+    }
+
+    /// Build an MCP response with Smart YAML content when format is requested.
+    /// Returns either a standard JSON result or a text content with Smart YAML.
+    fn ok_with_format(
+        id: Option<serde_json::Value>,
+        result: &serde_json::Value,
+        format_hint: Option<&str>,
+    ) -> Self {
+        let content_format = format_hint.unwrap_or("json");
+
+        match content_format {
+            "smart-yaml" | "smart-yaml-compact" => {
+                let is_compact = content_format == "smart-yaml-compact";
+                let yaml_text = smart_yaml::to_smart_yaml(result, is_compact, false);
+                Self {
+                    jsonrpc: "2.0".into(),
+                    result: Some(serde_json::json!({
+                        "content": [{
+                            "type": "text",
+                            "text": yaml_text
+                        }],
+                        "format": content_format
+                    })),
+                    error: None,
+                    id,
+                }
+            }
+            _ => Self::ok(id, result.clone()),
         }
     }
 
@@ -67,6 +99,8 @@ impl McpResponse {
 pub struct StdioMcpServer {
     db: IndexDb,
     cache: AgentCache,
+    /// Preferred output format negotiated during initialize.
+    preferred_format: std::sync::Mutex<Option<String>>,
 }
 
 /// Start stdio MCP server. Blocks until stdin closes.
@@ -75,7 +109,11 @@ pub fn run(db_path: &str, cache_ttl: u64) -> anyhow::Result<()> {
     let cache_db = IndexDb::open(db_path)?;
     let cache = AgentCache::new(cache_db, cache_ttl);
 
-    let server = StdioMcpServer { db, cache };
+    let server = StdioMcpServer {
+        db,
+        cache,
+        preferred_format: std::sync::Mutex::new(None),
+    };
 
     let stdin = io::stdin();
     let stdout = io::stdout();
@@ -132,9 +170,21 @@ impl StdioMcpServer {
 
     fn handle_initialize(
         &self,
-        _params: serde_json::Value,
+        params: serde_json::Value,
         id: Option<serde_json::Value>,
     ) -> McpResponse {
+        // Negotiate preferred output format from client capabilities
+        let preferred_format = params
+            .get("capabilities")
+            .and_then(|c| c.get("preferredFormat"))
+            .and_then(|v| v.as_str())
+            .map(String::from);
+
+        if let Some(ref fmt) = preferred_format {
+            let mut pf = self.preferred_format.lock().unwrap();
+            *pf = Some(fmt.clone());
+        }
+
         McpResponse::ok(
             id,
             serde_json::json!({
@@ -142,6 +192,12 @@ impl StdioMcpServer {
                 "capabilities": {
                     "tools": {
                         "listChanged": false
+                    },
+                    "experimental": {
+                        "smartYaml": {
+                            "supported": true,
+                            "description": "Smart YAML output format for LLM-friendly responses"
+                        }
                     }
                 },
                 "serverInfo": {
@@ -304,14 +360,24 @@ impl StdioMcpServer {
         let empty_obj = serde_json::json!({});
         let arguments = params.get("arguments").unwrap_or(&empty_obj);
 
+        // Get format preference: per-call argument > session-level > default (json)
+        let format_hint = arguments
+            .get("format")
+            .and_then(|v| v.as_str())
+            .map(String::from)
+            .or_else(|| {
+                let pf = self.preferred_format.lock().unwrap();
+                pf.clone()
+            });
+
         match tool_name {
-            "stats" => self.tool_stats(arguments, id),
-            "search" => self.tool_search(arguments, id),
-            "read" => self.tool_read(arguments, id),
-            "neighbors" => self.tool_neighbors(arguments, id),
-            "impact" => self.tool_impact(arguments, id),
-            "edit_plan" => self.tool_edit_plan(arguments, id),
-            "verify" => self.tool_verify(arguments, id),
+            "stats" => self.tool_stats(arguments, id, format_hint.as_deref()),
+            "search" => self.tool_search(arguments, id, format_hint.as_deref()),
+            "read" => self.tool_read(arguments, id, format_hint.as_deref()),
+            "neighbors" => self.tool_neighbors(arguments, id, format_hint.as_deref()),
+            "impact" => self.tool_impact(arguments, id, format_hint.as_deref()),
+            "edit_plan" => self.tool_edit_plan(arguments, id, format_hint.as_deref()),
+            "verify" => self.tool_verify(arguments, id, format_hint.as_deref()),
             _ => McpResponse::err(
                 id,
                 -32601,
@@ -328,24 +394,24 @@ impl StdioMcpServer {
         &self,
         _args: &serde_json::Value,
         id: Option<serde_json::Value>,
+        format_hint: Option<&str>,
     ) -> McpResponse {
-        match self.db.stats() {
-            Ok((files, symbols, refs)) => McpResponse::ok(
-                id,
-                serde_json::json!({
-                    "files": files,
-                    "symbols": symbols,
-                    "references": refs
-                }),
-            ),
-            Err(e) => McpResponse::err(id, -1, &format!("Database error: {}", e)),
-        }
+        let result = match self.db.stats() {
+            Ok((files, symbols, refs)) => serde_json::json!({
+                "files": files,
+                "symbols": symbols,
+                "references": refs
+            }),
+            Err(e) => return McpResponse::err(id, -1, &format!("Database error: {}", e)),
+        };
+        McpResponse::ok_with_format(id, &result, format_hint)
     }
 
     fn tool_search(
         &self,
         args: &serde_json::Value,
         id: Option<serde_json::Value>,
+        format_hint: Option<&str>,
     ) -> McpResponse {
         let query = args.get("query").and_then(|v| v.as_str()).unwrap_or("");
         if query.is_empty() {
@@ -399,14 +465,10 @@ impl StdioMcpServer {
                 })
                 .collect();
 
-            return McpResponse::ok(
+            return McpResponse::ok_with_format(
                 id,
-                serde_json::json!({
-                    "query": query,
-                    "results": results,
-                    "count": results.len(),
-                    "mode": "like"
-                }),
+                &serde_json::json!({"query": query, "results": results, "count": results.len(), "mode": "like"}),
+                format_hint,
             );
         }
 
@@ -422,15 +484,10 @@ impl StdioMcpServer {
         };
 
         match search::advanced_search(&self.db, query, extension_filter.as_deref(), &config) {
-            Ok(results) => McpResponse::ok(
-                id,
-                serde_json::json!({
-                    "query": query,
-                    "results": results,
-                    "count": results.len(),
-                    "mode": "fuzzy"
-                }),
-            ),
+            Ok(results) => {
+                let result_json = serde_json::json!({"query": query, "results": results, "count": results.len(), "mode": "fuzzy"});
+                McpResponse::ok_with_format(id, &result_json, format_hint)
+            }
             Err(e) => McpResponse::err(id, -1, &format!("Search error: {}", e)),
         }
     }
@@ -439,6 +496,7 @@ impl StdioMcpServer {
         &self,
         args: &serde_json::Value,
         id: Option<serde_json::Value>,
+        format_hint: Option<&str>,
     ) -> McpResponse {
         let file_path = args.get("file").and_then(|v| v.as_str()).unwrap_or("");
         if file_path.is_empty() {
@@ -446,14 +504,10 @@ impl StdioMcpServer {
         }
 
         match self.db.file_symbols(file_path) {
-            Ok(symbols) => McpResponse::ok(
-                id,
-                serde_json::json!({
-                    "file": file_path,
-                    "symbols": symbols,
-                    "count": symbols.len()
-                }),
-            ),
+            Ok(symbols) => {
+                let result_json = serde_json::json!({"file": file_path, "symbols": symbols, "count": symbols.len()});
+                McpResponse::ok_with_format(id, &result_json, format_hint)
+            }
             Err(e) => McpResponse::err(id, -1, &format!("Database error: {}", e)),
         }
     }
@@ -462,6 +516,7 @@ impl StdioMcpServer {
         &self,
         args: &serde_json::Value,
         id: Option<serde_json::Value>,
+        format_hint: Option<&str>,
     ) -> McpResponse {
         let symbol = args.get("symbol").and_then(|v| v.as_str()).unwrap_or("");
         if symbol.is_empty() {
@@ -469,14 +524,14 @@ impl StdioMcpServer {
         }
 
         match self.db.neighbors(symbol) {
-            Ok(refs) => McpResponse::ok(
-                id,
-                serde_json::json!({
+            Ok(refs) => {
+                let result = serde_json::json!({
                     "symbol": symbol,
                     "neighbors": refs,
                     "count": refs.len()
-                }),
-            ),
+                });
+                McpResponse::ok_with_format(id, &result, format_hint)
+            }
             Err(e) => McpResponse::err(id, -1, &format!("Database error: {}", e)),
         }
     }
@@ -485,6 +540,7 @@ impl StdioMcpServer {
         &self,
         args: &serde_json::Value,
         id: Option<serde_json::Value>,
+        format_hint: Option<&str>,
     ) -> McpResponse {
         let symbol = args.get("symbol").and_then(|v| v.as_str()).unwrap_or("");
         if symbol.is_empty() {
@@ -492,24 +548,25 @@ impl StdioMcpServer {
         }
 
         match self.db.impact(symbol) {
-            Ok((callers, refs)) => McpResponse::ok(
-                id,
-                serde_json::json!({
+            Ok((callers, refs)) => {
+                let result = serde_json::json!({
                     "symbol": symbol,
                     "impacted_symbols": callers,
                     "references": refs,
                     "impacted_count": callers.len()
-                }),
-            ),
+                });
+                McpResponse::ok_with_format(id, &result, format_hint)
+            }
             Err(e) => McpResponse::err(id, -1, &format!("Database error: {}", e)),
         }
     }
 
-    fn tool_edit_plan(
-        &self,
-        args: &serde_json::Value,
-        id: Option<serde_json::Value>,
-    ) -> McpResponse {
+ fn tool_edit_plan(
+       &self,
+       args: &serde_json::Value,
+       id: Option<serde_json::Value>,
+       format_hint: Option<&str>,
+   ) -> McpResponse {
         let symbol = args.get("symbol").and_then(|v| v.as_str()).unwrap_or("");
         if symbol.is_empty() {
             return McpResponse::err(id, -1, "Missing 'symbol' parameter");
@@ -538,12 +595,12 @@ impl StdioMcpServer {
         }
 
         match crate::graph::analyze_edit_plan(&self.db, symbol, &changes, depth) {
-            Ok(result) => McpResponse::ok(
-                id,
-                serde_json::to_value(result).unwrap_or_else(|_| {
+            Ok(result) => {
+                let json_result = serde_json::to_value(result).unwrap_or_else(|_| {
                     serde_json::json!({ "error": "Failed to serialize edit plan result" })
-                }),
-            ),
+                });
+                McpResponse::ok_with_format(id, &json_result, format_hint)
+            }
             Err(e) => McpResponse::err(id, -1, &format!("Edit plan error: {}", e)),
         }
     }
@@ -552,6 +609,7 @@ impl StdioMcpServer {
         &self,
         args: &serde_json::Value,
         id: Option<serde_json::Value>,
+        format_hint: Option<&str>,
     ) -> McpResponse {
         let file_path = args.get("file_path").and_then(|v| v.as_str()).unwrap_or("");
         if file_path.is_empty() {
@@ -575,14 +633,15 @@ impl StdioMcpServer {
             (_, None) => "missing",
         };
 
-        McpResponse::ok(
+        McpResponse::ok_with_format(
             id,
-            serde_json::json!({
+            &serde_json::json!({
                 "file_path": file_path,
                 "stored_hash": stored_hash,
                 "disk_hash": disk_hash,
                 "status": status
             }),
+            format_hint,
         )
     }
 }

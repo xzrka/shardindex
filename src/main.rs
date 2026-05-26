@@ -16,6 +16,7 @@ mod cli;
 mod config;
 mod daemon;
 mod database;
+mod format;
 mod graph;
 mod indexer;
 mod integrity;
@@ -27,7 +28,7 @@ mod watcher;
 use std::sync::{Arc, Mutex};
 
 use clap::Parser;
-use cli::{Cli, Commands, OverrideSubcommand};
+use cli::{Cli, Commands, OutputFormat, OverrideSubcommand};
 use database::IndexDb;
 use graph::PageRankConfig;
 use indexer::{IndexSummary, Language, ProjectIndexer};
@@ -56,12 +57,12 @@ async fn main() -> anyhow::Result<()> {
             language,
         } => cmd_daemon(&path, &db, &listen, poll_interval, &language).await?,
         Commands::Reindex { path, language, db } => cmd_reindex(&path, &language, &db)?,
-        Commands::Stats { db } => cmd_stats(&db)?,
-        Commands::Search { query, db, kind, language, min_score, limit, like } => {
-            cmd_search(&db, &query, kind, language, min_score, limit, like)?
+        Commands::Stats { db, format } => cmd_stats(&db, format)?,
+        Commands::Search { query, db, kind, language, min_score, limit, like, format } => {
+            cmd_search(&db, &query, kind, language, min_score, limit, like, format)?
         }
-        Commands::Neighbors { symbol, db } => cmd_neighbors(&db, &symbol)?,
-        Commands::Impact { symbol, db } => cmd_impact(&db, &symbol)?,
+        Commands::Neighbors { symbol, db, format } => cmd_neighbors(&db, &symbol, format)?,
+        Commands::Impact { symbol, db, format } => cmd_impact(&db, &symbol, format)?,
         Commands::Graph {
             symbol,
             db,
@@ -73,7 +74,8 @@ async fn main() -> anyhow::Result<()> {
             max_iter,
             tolerance,
             top,
-        } => cmd_rank(&db, damping, max_iter, tolerance, top)?,
+            format,
+        } => cmd_rank(&db, damping, max_iter, tolerance, top, format)?,
         Commands::Override { command, db } => cmd_override(&db, command)?,
         Commands::Verify { symbols, db, language } => cmd_verify(&db, &symbols, language.as_deref())?,
         Commands::McpServer { db, cache_ttl } => {
@@ -284,14 +286,28 @@ fn cmd_reindex(root: &str, language: &str, db_path: &str) -> anyhow::Result<()> 
     Ok(())
 }
 
-fn cmd_stats(db_path: &str) -> anyhow::Result<()> {
+fn cmd_stats(db_path: &str, output_format: OutputFormat) -> anyhow::Result<()> {
     let db = IndexDb::open(db_path)?;
     let (files, symbols, refs) = db.stats()?;
 
-    println!("📊 ShardIndex Statistics");
-    println!("   Files:      {}", files);
-    println!("   Symbols:    {}", symbols);
-    println!("   References: {}", refs);
+    if output_format == OutputFormat::Text {
+        println!("📊 ShardIndex Statistics");
+        println!("   Files:      {}", files);
+        println!("   Symbols:    {}", symbols);
+        println!("   References: {}", refs);
+    } else {
+        let json = serde_json::json!({
+            "files": files,
+            "symbols": symbols,
+            "references": refs
+        });
+        let output = match output_format {
+            OutputFormat::Json => serde_json::to_string_pretty(&json)?,
+            OutputFormat::SmartYaml => format::smart_yaml::to_smart_yaml(&json, false, true),
+            OutputFormat::Text => unreachable!(),
+        };
+        println!("{}", output);
+    }
     Ok(())
 }
 
@@ -303,6 +319,7 @@ fn cmd_search(
     min_score: f64,
     limit: usize,
     like_mode: bool,
+    output_format: OutputFormat,
 ) -> anyhow::Result<()> {
     let db = IndexDb::open(db_path)?;
 
@@ -332,32 +349,53 @@ fn cmd_search(
     });
 
     if like_mode {
-        // 빠른 LIKE 모드
         let results = db.search_symbol_ranked(query)?;
 
-        println!(
-            "🔍 LIKE Search '{}' — {} results",
-            query,
-            results.len()
-        );
-        for (sym, rank) in &results {
-            let rank_str = match rank {
-                Some(r) => format!(" [PR: {:.4}]", r),
-                None => String::from(""),
-            };
+        if output_format == OutputFormat::Text {
             println!(
-                "  {}:{} {} [{}]{}{}
-",
-                sym.file_path,
-                sym.start_line,
-                sym.name,
-                sym.kind,
-                rank_str,
-                sym.signature.as_deref().unwrap_or("")
+                "🔍 LIKE Search '{}' — {} results",
+                query,
+                results.len()
             );
+            for (sym, rank) in &results {
+                let rank_str = match rank {
+                    Some(r) => format!(" [PR: {:.4}]", r),
+                    None => String::from(""),
+                };
+                println!(
+                    "  {}:{} {} [{}]{}{}",
+                    sym.file_path,
+                    sym.start_line,
+                    sym.name,
+                    sym.kind,
+                    rank_str,
+                    sym.signature.as_deref().unwrap_or("")
+                );
+            }
+        } else {
+            let items: Vec<serde_json::Value> = results
+                .iter()
+                .map(|(sym, rank)| {
+                    serde_json::json!({
+                        "name": sym.name,
+                        "qualified_name": sym.name,
+                        "file": sym.file_path,
+                        "line": sym.start_line,
+                        "kind": sym.kind,
+                        "signature": sym.signature,
+                        "page_rank": rank
+                    })
+                })
+                .collect();
+            let json = serde_json::json!({
+                "query": query,
+                "mode": "like",
+                "count": items.len(),
+                "results": items
+            });
+            print_formatted(&json, output_format);
         }
     } else {
-        // Fuzzy advanced search
         let config = search::SearchConfig {
             kind_filter: kind.clone(),
             language_filter: language.clone(),
@@ -369,58 +407,118 @@ fn cmd_search(
         let results =
             search::advanced_search(&db, query, extension_filter.as_deref(), &config)?;
 
-        println!(
-            "🔍 Fuzzy Search '{}' (min_score={}, limit={}) — {} results",
-            query,
-            min_score,
-            limit,
-            results.len()
-        );
-        for result in &results {
-            let rank_str = match result.page_rank {
-                Some(r) => format!(" [PR: {:.4}]", r),
-                None => String::from(""),
-            };
+        if output_format == OutputFormat::Text {
             println!(
-                "  {}:{} {} [{}] score={:.3} fuzzy={:.3}{}{}",
-                result.file_path,
-                result.start_line,
-                result.name,
-                result.kind,
-                result.score,
-                result.fuzzy_score,
-                rank_str,
-                result.signature.as_deref().unwrap_or("")
+                "🔍 Fuzzy Search '{}' (min_score={}, limit={}) — {} results",
+                query,
+                min_score,
+                limit,
+                results.len()
             );
+            for result in &results {
+                let rank_str = match result.page_rank {
+                    Some(r) => format!(" [PR: {:.4}]", r),
+                    None => String::from(""),
+                };
+                println!(
+                    "  {}:{} {} [{}] score={:.3} fuzzy={:.3}{}{}",
+                    result.file_path,
+                    result.start_line,
+                    result.name,
+                    result.kind,
+                    result.score,
+                    result.fuzzy_score,
+                    rank_str,
+                    result.signature.as_deref().unwrap_or("")
+                );
+            }
+        } else {
+            let items: Vec<serde_json::Value> = results
+                .iter()
+                .map(|r| {
+                    serde_json::json!({
+                        "name": r.name,
+                        "qualified_name": r.name,
+                        "file": r.file_path,
+                        "line": r.start_line,
+                        "kind": r.kind,
+                        "signature": r.signature,
+                        "score": r.score,
+                        "fuzzy_score": r.fuzzy_score,
+                        "page_rank": r.page_rank
+                    })
+                })
+                .collect();
+            let json = serde_json::json!({
+                "query": query,
+                "mode": "fuzzy",
+                "min_score": min_score,
+                "count": items.len(),
+                "results": items
+            });
+            print_formatted(&json, output_format);
         }
     }
 
     Ok(())
 }
 
-fn cmd_neighbors(db_path: &str, symbol: &str) -> anyhow::Result<()> {
+fn cmd_neighbors(db_path: &str, symbol: &str, output_format: OutputFormat) -> anyhow::Result<()> {
     let db = IndexDb::open(db_path)?;
     let neighbors = db.neighbors(symbol)?;
 
-    println!(
-        "🔗 Neighbors of '{}' — {} refs",
-        symbol,
-        neighbors.len()
-    );
-    for ref_rec in &neighbors {
+    if output_format == OutputFormat::Text {
         println!(
-            "  {}:{} {} → {} [{}]",
-            ref_rec.caller_file,
-            ref_rec.line,
-            ref_rec.caller_symbol.as_deref().unwrap_or("?"),
-            ref_rec.callee_symbol,
-            ref_rec.ref_kind
+            "🔗 Neighbors of '{}' — {} refs",
+            symbol,
+            neighbors.len()
         );
+        for ref_rec in &neighbors {
+            println!(
+                "  {}:{} {} → {} [{}]",
+                ref_rec.caller_file,
+                ref_rec.line,
+                ref_rec.caller_symbol.as_deref().unwrap_or("?"),
+                ref_rec.callee_symbol,
+                ref_rec.ref_kind
+            );
+        }
+    } else {
+        let callers: Vec<serde_json::Value> = neighbors
+            .iter()
+            .filter(|r| r.callee_symbol == symbol)
+            .map(|r| {
+                serde_json::json!({
+                    "symbol": r.caller_symbol.as_deref().unwrap_or("?"),
+                    "file": r.caller_file,
+                    "line": r.line,
+                    "confidence": r.confidence
+                })
+            })
+            .collect();
+        let callees: Vec<serde_json::Value> = neighbors
+            .iter()
+            .filter(|r| r.caller_symbol.as_deref() == Some(&symbol))
+            .map(|r| {
+                serde_json::json!({
+                    "symbol": r.callee_symbol,
+                    "file": r.caller_file,
+                    "line": r.line,
+                    "confidence": r.confidence
+                })
+            })
+            .collect();
+        let json = serde_json::json!({
+            "center": symbol,
+            "callers": callers,
+            "callees": callees
+        });
+        print_formatted(&json, output_format);
     }
     Ok(())
 }
 
-fn cmd_impact(db_path: &str, symbol: &str) -> anyhow::Result<()> {
+fn cmd_impact(db_path: &str, symbol: &str, output_format: OutputFormat) -> anyhow::Result<()> {
     let db = IndexDb::open(db_path)?;
     let (callers, refs) = db.impact_ranked(symbol)?;
 
@@ -434,23 +532,47 @@ fn cmd_impact(db_path: &str, symbol: &str) -> anyhow::Result<()> {
         None => String::from(" (no rank computed — run 'rank' first)"),
     };
 
-    println!(
-        "💥 Impact analysis for '{}'{} — {} callers, {} refs",
-        symbol, own_rank_str, callers.len(), refs.len()
-    );
+    if output_format == OutputFormat::Text {
+        println!(
+            "💥 Impact analysis for '{}'{} — {} callers, {} refs",
+            symbol, own_rank_str, callers.len(), refs.len()
+        );
 
-    if !callers.is_empty() {
-        println!("\n  Impacted callers (sorted by PageRank):");
-        for (sym, rank) in &callers {
-            let rank_str = match rank {
-                Some(r) => format!(" [PR: {:.4}]", r),
-                None => String::from(""),
-            };
-            println!(
-                "    {}:{} {} [{}]{}",
-                sym.file_path, sym.start_line, sym.name, sym.kind, rank_str
-            );
+        if !callers.is_empty() {
+            println!("\n  Impacted callers (sorted by PageRank):");
+            for (sym, rank) in &callers {
+                let rank_str = match rank {
+                    Some(r) => format!(" [PR: {:.4}]", r),
+                    None => String::from(""),
+                };
+                println!(
+                    "    {}:{} {} [{}]{}",
+                    sym.file_path, sym.start_line, sym.name, sym.kind, rank_str
+                );
+            }
         }
+    } else {
+        let items: Vec<serde_json::Value> = callers
+            .iter()
+            .map(|(sym, rank)| {
+                serde_json::json!({
+                    "qualified_name": sym.name,
+                    "name": sym.name,
+                    "file": sym.file_path,
+                    "line": sym.start_line,
+                    "kind": sym.kind,
+                    "relationship": "caller",
+                    "confidence": 0.95,
+                    "page_rank": rank
+                })
+            })
+            .collect();
+        let json = serde_json::json!({
+            "target": symbol,
+            "impacted_symbols": items,
+            "impacted_count": items.len()
+        });
+        print_formatted(&json, output_format);
     }
 
     Ok(())
@@ -484,6 +606,7 @@ fn cmd_rank(
     max_iter: usize,
     tolerance: f64,
     top: usize,
+    output_format: OutputFormat,
 ) -> anyhow::Result<()> {
     let db = IndexDb::open(db_path)?;
 
@@ -493,32 +616,66 @@ fn cmd_rank(
         tolerance,
     };
 
-    println!("📊 Computing symbol ranking...");
-    println!(
-        "   Config: damping={}, max_iter={}, tolerance={}\n",
-        damping, max_iter, tolerance
-    );
+    if output_format == OutputFormat::Text {
+        println!("📊 Computing symbol ranking...");
+        println!(
+            "   Config: damping={}, max_iter={}, tolerance={}\n",
+            damping, max_iter, tolerance
+        );
+    }
 
     graph::compute_and_store_ranks(&db, Some(&config))?;
 
     // Top-N 출력
     let ranked = db.ranked_symbols(top)?;
 
-    println!("🏆 Top {} Ranked Symbols ({} total)", top, ranked.len());
-    println!();
+    if output_format == OutputFormat::Text {
+        println!("🏆 Top {} Ranked Symbols ({} total)", top, ranked.len());
+        println!();
 
-    for (i, rank) in ranked.iter().enumerate() {
-        println!(
-            "  {}. {}  [PR: {:.6}  in: {}  out: {}]",
-            i + 1,
-            rank.symbol_name,
-            rank.page_rank,
-            rank.in_degree,
-            rank.out_degree
-        );
+        for (i, rank) in ranked.iter().enumerate() {
+            println!(
+                "  {}. {}  [PR: {:.6}  in: {}  out: {}]",
+                i + 1,
+                rank.symbol_name,
+                rank.page_rank,
+                rank.in_degree,
+                rank.out_degree
+            );
+        }
+    } else {
+        let items: Vec<serde_json::Value> = ranked
+            .iter()
+            .enumerate()
+            .map(|(i, rank)| {
+                serde_json::json!({
+                    "rank": i + 1,
+                    "symbol": rank.symbol_name,
+                    "page_rank": rank.page_rank,
+                    "in_degree": rank.in_degree,
+                    "out_degree": rank.out_degree
+                })
+            })
+            .collect();
+        let json = serde_json::json!({
+            "top": top,
+            "total": items.len(),
+            "rankings": items
+        });
+        print_formatted(&json, output_format);
     }
 
     Ok(())
+}
+
+/// Helper: format JSON value as either JSON or Smart YAML
+fn print_formatted(json: &serde_json::Value, output_format: OutputFormat) {
+    let output = match output_format {
+        OutputFormat::Json => serde_json::to_string_pretty(json).unwrap_or_default(),
+        OutputFormat::SmartYaml => format::smart_yaml::to_smart_yaml(json, false, true),
+        OutputFormat::Text => unreachable!(),
+    };
+    println!("{}", output);
 }
 
 fn cmd_override(db_path: &str, command: OverrideSubcommand) -> anyhow::Result<()> {

@@ -47,6 +47,9 @@ tokio = { version = "1", features = ["full"] }
 axum = { version = "0.8", features = ["json"] }
 tower = "0.5"
 
+# Smart YAML format (LLM-optimized output)
+serde_yaml = "0.9"
+
 # Dot graph output
 petgraph = { version = "0.8", optional = true }
 tree-sitter-ruby = "0.23.1"

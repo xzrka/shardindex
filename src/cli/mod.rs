@@ -1,5 +1,5 @@
 /// CLI — shardindex 명령어 (clap derive)
-use clap::{Parser, Subcommand};
+use clap::{Parser, Subcommand, ValueEnum};
 
 /// ShardIndex — Semantic code graph index
 #[derive(Parser, Debug)]
@@ -66,6 +66,10 @@ pub enum Commands {
     Stats {
         #[arg(long, default_value = ".shardindex.db")]
         db: String,
+
+        /// Output format (default: text)
+        #[arg(long, value_enum, default_value_t = OutputFormat::default())]
+        format: OutputFormat,
     },
 
     /// Search symbols (fuzzy matching + PageRank scoring)
@@ -96,6 +100,10 @@ pub enum Commands {
         /// Use fast LIKE search instead of fuzzy matching
         #[arg(long)]
         like: bool,
+
+        /// Output format (default: text)
+        #[arg(long, value_enum, default_value_t = OutputFormat::default())]
+        format: OutputFormat,
     },
 
     /// Show neighbors of a symbol
@@ -105,6 +113,10 @@ pub enum Commands {
 
         #[arg(long, default_value = ".shardindex.db")]
         db: String,
+
+        /// Output format (default: text)
+        #[arg(long, value_enum, default_value_t = OutputFormat::default())]
+        format: OutputFormat,
     },
 
     /// Show impact analysis for a symbol
@@ -114,6 +126,10 @@ pub enum Commands {
 
         #[arg(long, default_value = ".shardindex.db")]
         db: String,
+
+        /// Output format (default: text)
+        #[arg(long, value_enum, default_value_t = OutputFormat::default())]
+        format: OutputFormat,
     },
 
     /// Generate DOT graph
@@ -150,6 +166,10 @@ pub enum Commands {
         /// Show top N ranked symbols (default: 20)
         #[arg(short, long, default_value_t = 20)]
         top: usize,
+
+        /// Output format (default: text)
+        #[arg(long, value_enum, default_value_t = OutputFormat::default())]
+        format: OutputFormat,
     },
 
     /// Override registry management
@@ -218,4 +238,16 @@ pub enum OverrideSubcommand {
         /// Symbol name
         symbol: String,
     },
+}
+
+/// Output format for query commands
+#[derive(Clone, Copy, Debug, Default, PartialEq, ValueEnum)]
+pub enum OutputFormat {
+    /// Human-readable text (default)
+    #[default]
+    Text,
+    /// JSON format
+    Json,
+    /// Smart YAML — LLM-optimized format
+    SmartYaml,
 }
