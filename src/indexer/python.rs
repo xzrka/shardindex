@@ -164,6 +164,14 @@ use anyhow::Context;
               });
           }
 
+          // BUG-011 fix: parent must not equal the class's own name.
+          // When walk_node recurses into a class_definition, it passes
+          // the class name as parent. extract_class should treat that as
+          // "no enclosing class" rather than creating "User.User".
+          let effective_parent = parent
+              .filter(|p| *p != name)
+              .map(|s| s.to_string());
+
           result.symbols.push(ParsedSymbol {
               name,
               kind: SymbolKind::Class,
@@ -173,7 +181,7 @@ use anyhow::Context;
               end_col: node.end_position().column,
               signature: Some(signature),
               docstring: Self::extract_docstring(node, source),
-              parent: parent.map(|s| s.to_string()),
+              parent: effective_parent,
           });
       }
 
