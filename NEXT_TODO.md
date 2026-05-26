@@ -69,11 +69,17 @@ adaptive compression are the foundation for all budgeted retrieval features.
 - [x] `src/main.rs` — `mod token_budget;` added (bin target)
 - [x] 14 new token_budget tests (250 total tests, up from 236)
 
-### 4-4. Integration tests
+### 4-4. Integration tests ✅ DONE
 
-- [ ] Token budget enforcement tests
-- [ ] Compression pipeline E2E tests
-- [ ] MCP response token count verification
+- [x] `tests/integration_test.rs` — 17 integration tests
+- [x] Token budget enforcement tests (reduces response, preserves within budget)
+- [x] Compression pipeline E2E tests (monotonic reduction across 4 budgets)
+- [x] MCP response token count verification (file_symbols, search, impact, neighbors, stats)
+- [x] Compression preserves essential fields (name, kind survive all strategies)
+- [x] Strategy order verification (docstrings → signatures → details → truncate)
+- [x] TokenBudgetedResponse wrapper tests (within/exceeded budget)
+- [x] TruncateResults count field consistency
+- [x] 267 total tests (250 unit + 17 integration)
 
 ---
 
@@ -179,7 +185,7 @@ Advanced APIs for safe refactoring workflows.
 1. ~~**Phase 4-1** — Token estimation (foundation for everything else)**~~ ✅
 2. ~~**Phase 4-2** — Compression pipeline**~~ ✅
 3. ~~**Phase 4-3** — TokenBudgeted MCP responses**~~ ✅
-4. **Phase 4-4** — Integration tests ← NEXT
+4. ~~**Phase 4-4** — Integration tests**~~ ✅
 5. **Phase 8** — Complete LanguageBackend trait (is_dynamic_ref, types)
 6. **Phase 9** — Refactoring APIs (impact_deep, dead_code_verify, etc.)
 7. **Phase 11** — Error handling / fallback
