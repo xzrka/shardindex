@@ -229,11 +229,16 @@ impl DartParser {
     }
 
     fn extract_call(node: &Node, source: &[u8], result: &mut ParseResult) {
-        let method = node
+        // Dart method_invocation: the method name is in the 'method' or 'name' field.
+        // tree-sitter-dart uses 'method' for chained calls, but some versions use 'name'.
+        // Fallback: use the first named child if field lookup fails.
+        let callee = node
             .child_by_field_name("method")
+            .or_else(|| node.child_by_field_name("name"))
+            .or_else(|| node.named_child(0))
             .and_then(|n| n.utf8_text(source).ok())
             .map(|s| s.to_string());
-        if let Some(callee) = method {
+        if let Some(callee) = callee {
             if !callee.is_empty() {
                 result.references.push(ParsedReference {
                     caller_symbol: None,

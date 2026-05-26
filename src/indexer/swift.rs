@@ -52,7 +52,7 @@ impl SwiftParser {
             "import" => {
                 Self::extract_import(node, source, result);
             }
-            "call_expression" => {
+            "call_suffix" => {
                 Self::extract_call(node, source, result);
             }
             _ => {}
@@ -190,10 +190,24 @@ impl SwiftParser {
     }
 
     fn extract_call(node: &Node, source: &[u8], result: &mut ParseResult) {
-        let callee = node
-            .child_by_field_name("function")
-            .and_then(|n| n.utf8_text(source).ok())
-            .map(|s| s.to_string());
+        // Swift tree-sitter 0.7.2: call_suffix has no 'function' field.
+        // The callee is the first named child (simple_identifier or member_access).
+        let callee_node = node.named_child(0);
+        let callee = if let Some(cn) = callee_node {
+            match cn.kind() {
+                "simple_identifier" => cn.utf8_text(source).ok().map(|s| s.to_string()),
+                "member_access" => {
+                    // member_access: base . identifier — get the identifier part
+                    cn.child_by_field_name("detail")
+                        .and_then(|n| n.utf8_text(source).ok())
+                        .map(|s| s.to_string())
+                }
+                _ => cn.utf8_text(source).ok().map(|s| s.to_string()),
+            }
+        } else {
+            None
+        };
+
         if let Some(callee) = callee {
             if !callee.is_empty() {
                 result.references.push(ParsedReference {
@@ -207,7 +221,7 @@ impl SwiftParser {
 
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
-            if child.kind() == "call_expression" {
+            if child.kind() == "call_suffix" {
                 Self::extract_call(&child, source, result);
             }
         }
