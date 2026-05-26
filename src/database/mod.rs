@@ -240,7 +240,7 @@ impl IndexDb {
     /// 삭제된 파일 정리 (hash + symbols + references)
     pub fn remove_file(&self, path: &str) -> Result<(), anyhow::Error> {
         self.conn.execute(
-            "DELETE FROM file_hash WHERE path = ?1",
+            "DELETE FROM reference WHERE caller_file = ?1 OR callee_file = ?1",
             params![path],
         )?;
         self.conn.execute(
@@ -248,7 +248,7 @@ impl IndexDb {
             params![path],
         )?;
         self.conn.execute(
-            "DELETE FROM reference WHERE caller_file = ?1",
+            "DELETE FROM file_hash WHERE path = ?1",
             params![path],
         )?;
         Ok(())
