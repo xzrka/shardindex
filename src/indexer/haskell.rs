@@ -55,6 +55,9 @@ impl HaskellParser {
             "import_list" => {
                 Self::extract_import_list(node, source, result);
             }
+            "apply" => {
+                Self::extract_call(node, source, result);
+            }
             _ => {}
         }
 
@@ -185,17 +188,31 @@ impl HaskellParser {
             .and_then(|n| n.utf8_text(source).ok())
             .map(|s| s.to_string());
         if let Some(name) = module_name {
-            result.imports.push((
-                name.clone(),
-                name.clone(),
-                "import".to_string(),
-            ));
+            result
+                .imports
+                .push((name.clone(), name.clone(), "import".to_string()));
             result.references.push(ParsedReference {
                 caller_symbol: None,
                 callee_symbol: name,
                 ref_kind: "import".to_string(),
                 line: node.start_position().row + 1,
             });
+        }
+    }
+
+    fn extract_call(node: &Node, source: &[u8], result: &mut ParseResult) {
+        // Haskell apply: first named child is the function being applied
+        let func = node.named_child(0);
+        if let Some(name) = func.and_then(|n| n.utf8_text(source).ok()) {
+            let callee = name.to_string();
+            if !callee.is_empty() {
+                result.references.push(ParsedReference {
+                    caller_symbol: None,
+                    callee_symbol: callee,
+                    ref_kind: "call".to_string(),
+                    line: node.start_position().row + 1,
+                });
+            }
         }
     }
 }
