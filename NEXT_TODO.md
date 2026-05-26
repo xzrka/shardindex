@@ -40,7 +40,7 @@ adaptive compression are the foundation for all budgeted retrieval features.
 
 ### 4-2. Adaptive compression pipeline
 
-- [ ] Create `src/compression.rs`
+- [x] Create `src/compression.rs`
   - `CompressionLevel` enum: `SignatureOnly`, `CriticalBranches`, `FullBody`, `TokenBudgeted(u32)`
   - `compress_symbol(source, symbol, level) -> CompressedSymbol`
   - Extract critical branches (if/else, loops, error handling, return statements)
