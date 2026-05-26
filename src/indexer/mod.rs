@@ -57,6 +57,7 @@ use anyhow::Context;
 use tracing::{info, debug, warn};
 
 use crate::database::{IndexDb, SymbolRecord};
+use crate::token_estimation::{estimate_token_count, estimate_symbol_tokens};
 
 /// Supported language parsers
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -423,6 +424,7 @@ impl ProjectIndexer {
         let mut symbol_count = 0;
         for sym in &result.symbols {
             let qualified_name = SymbolRecord::build_qualified_name(&relative, &sym.name, &sym.parent);
+            let token_count = estimate_symbol_tokens(&content, sym.start_line, sym.end_line);
             let _id = self.db.insert_symbol(&SymbolRecord {
                 id: 0,
                 file_path: relative.clone(),
@@ -436,6 +438,7 @@ impl ProjectIndexer {
                 docstring: sym.docstring.clone(),
                 parent_symbol: sym.parent.clone(),
                 qualified_name,
+                token_count,
             })?;
             symbol_count += 1;
         }

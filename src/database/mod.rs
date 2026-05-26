@@ -31,6 +31,7 @@ pub struct SymbolRecord {
     pub docstring: Option<String>,
     pub parent_symbol: Option<String>,
     pub qualified_name: String,
+    pub token_count: usize,
 }
 
 impl SymbolRecord {
@@ -272,12 +273,12 @@ impl IndexDb {
     pub fn insert_symbol(&self, rec: &SymbolRecord) -> Result<i64, anyhow::Error> {
         let _id = self.conn.last_insert_rowid();
         self.conn.execute(
-            r#"INSERT INTO symbol (file_path, name, kind, start_line, end_line, start_col, end_col, signature, docstring, parent_symbol, qualified_name)
-               VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)"#,
+            r#"INSERT INTO symbol (file_path, name, kind, start_line, end_line, start_col, end_col, signature, docstring, parent_symbol, qualified_name, token_count)
+               VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)"#,
             params![
                 rec.file_path, rec.name, rec.kind,
                 rec.start_line, rec.end_line, rec.start_col, rec.end_col,
-                rec.signature, rec.docstring, rec.parent_symbol, rec.qualified_name
+                rec.signature, rec.docstring, rec.parent_symbol, rec.qualified_name, rec.token_count
             ],
         )?;
         Ok(self.conn.last_insert_rowid())
@@ -285,8 +286,8 @@ impl IndexDb {
 
     /// 파일의 모든 심볼 조회
     pub fn file_symbols(&self, file_path: &str) -> Result<Vec<SymbolRecord>, anyhow::Error> {
-        let mut stmt = self.conn.prepare(
-            "SELECT id, file_path, name, kind, start_line, end_line, start_col, end_col, signature, docstring, parent_symbol, qualified_name
+       let mut stmt = self.conn.prepare(
+            "SELECT id, file_path, name, kind, start_line, end_line, start_col, end_col, signature, docstring, parent_symbol, qualified_name, COALESCE(token_count, 0)
              FROM symbol WHERE file_path = ?1 ORDER BY start_line"
         )?;
         let records = stmt.query_map(params![file_path], |row| {
@@ -303,6 +304,7 @@ impl IndexDb {
                 docstring: row.get(9)?,
                 parent_symbol: row.get::<_, Option<String>>(10)?,
                 qualified_name: row.get::<_, Option<String>>(11)?.unwrap_or_default(),
+                token_count: row.get::<_, usize>(12)?,
             })
         })?;
         Ok(records.collect::<Result<Vec<_>, _>>()?)
@@ -312,7 +314,7 @@ impl IndexDb {
     pub fn search_symbol(&self, pattern: &str) -> Result<Vec<SymbolRecord>, anyhow::Error> {
         let search = format!("%{}%", pattern);
         let mut stmt = self.conn.prepare(
-            "SELECT id, file_path, name, kind, start_line, end_line, start_col, end_col, signature, docstring, parent_symbol, qualified_name
+            "SELECT id, file_path, name, kind, start_line, end_line, start_col, end_col, signature, docstring, parent_symbol, qualified_name, COALESCE(token_count, 0)
              FROM symbol WHERE name LIKE ?1 OR qualified_name LIKE ?1 ORDER BY kind, name LIMIT 50"
         )?;
         let records = stmt.query_map(params![search], |row| {
@@ -329,6 +331,7 @@ impl IndexDb {
                 docstring: row.get(9)?,
                 parent_symbol: row.get::<_, Option<String>>(10)?,
                 qualified_name: row.get::<_, Option<String>>(11)?.unwrap_or_default(),
+                token_count: row.get::<_, usize>(12)?,
             })
         })?;
         Ok(records.collect::<Result<Vec<_>, _>>()?)
@@ -392,7 +395,7 @@ impl IndexDb {
 
         let callers: Vec<SymbolRecord> = {
             let mut stmt = self.conn.prepare(
-                r#"SELECT id, file_path, name, kind, start_line, end_line, start_col, end_col, signature, docstring, parent_symbol, qualified_name
+                r#"SELECT id, file_path, name, kind, start_line, end_line, start_col, end_col, signature, docstring, parent_symbol, qualified_name, COALESCE(token_count, 0)
                    FROM symbol WHERE name IN (SELECT DISTINCT caller_symbol FROM reference WHERE callee_symbol = ?1)
                    LIMIT 50"#
             )?;
@@ -410,6 +413,7 @@ impl IndexDb {
                     docstring: row.get::<_, Option<String>>(9)?,
                     parent_symbol: row.get::<_, Option<String>>(10)?,
                     qualified_name: row.get::<_, Option<String>>(11)?.unwrap_or_default(),
+                    token_count: row.get::<_, usize>(12)?,
                 })
             })?.collect::<Result<Vec<_>, _>>()?
         };
@@ -426,7 +430,7 @@ impl IndexDb {
         let search = format!("%{}%", pattern);
         let mut stmt = self.conn.prepare(
             "SELECT s.id, s.file_path, s.name, s.kind, s.start_line, s.end_line, s.start_col, s.end_col,
-                    s.signature, s.docstring, s.parent_symbol, s.qualified_name, sr.page_rank
+                    s.signature, s.docstring, s.parent_symbol, s.qualified_name, COALESCE(s.token_count, 0), sr.page_rank
              FROM symbol s
              LEFT JOIN symbol_rank sr ON s.name = sr.symbol_name
              WHERE s.name LIKE ?1 OR s.qualified_name LIKE ?1
@@ -447,9 +451,10 @@ impl IndexDb {
                     signature: row.get(8)?,
                     docstring: row.get(9)?,
                     parent_symbol: row.get::<_, Option<String>>(10)?,
-                qualified_name: row.get::<_, Option<String>>(11)?.unwrap_or_default(),
+                    qualified_name: row.get::<_, Option<String>>(11)?.unwrap_or_default(),
+                    token_count: row.get::<_, usize>(12)?,
                 },
-                row.get::<_, Option<f64>>(12)?,
+                row.get::<_, Option<f64>>(13)?,
             ))
         })?;
         Ok(records.collect::<Result<Vec<_>, _>>()?)
@@ -478,7 +483,7 @@ impl IndexDb {
         let mut stmt = self.conn.prepare(
             r#"SELECT s.id, s.file_path, s.name, s.kind, s.start_line, s.end_line,
                       s.start_col, s.end_col, s.signature, s.docstring, s.parent_symbol, s.qualified_name,
-                      sr.page_rank
+                      COALESCE(s.token_count, 0), sr.page_rank
                FROM symbol s
                LEFT JOIN symbol_rank sr ON s.name = sr.symbol_name
                WHERE s.name IN (
@@ -503,8 +508,9 @@ impl IndexDb {
                         docstring: row.get::<_, Option<String>>(9)?,
                         parent_symbol: row.get::<_, Option<String>>(10)?,
                         qualified_name: row.get::<_, Option<String>>(11)?.unwrap_or_default(),
+                        token_count: row.get::<_, usize>(12)?,
                     },
-                    row.get::<_, Option<f64>>(12)?,
+                    row.get::<_, Option<f64>>(13)?,
                 ))
             })?
             .collect::<Result<Vec<_>, _>>()?;

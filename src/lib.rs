@@ -10,4 +10,5 @@ pub mod integrity;
 pub mod mcp;
 pub mod recovery;
 pub mod search;
+pub mod token_estimation;
 pub mod watcher;

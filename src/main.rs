@@ -23,6 +23,7 @@ mod integrity;
 mod mcp;
 mod recovery;
 mod search;
+mod token_estimation;
 mod watcher;
 
 use std::sync::{Arc, Mutex};
