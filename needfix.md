@@ -1,6 +1,6 @@
 # ShardIndex — Need Fix (버그 수정 목록)
 
-> 생성일: 2026-05-26 (재빌드 후 재테스트)  
+> 생성일: 2026-05-26 | 마지막 업데이트: 2026-05-27 (BUG-004~008 수정)  
 > 테스트 범위: 19개 언어 단일/크로스 프로젝트 테스트, CLI 명령어 전량, MCP stdio 서버(7 tools), TOON 출력, 경계 조건, cargo test(261 unit + 17 integration + 2 doctest)
 
 ---
@@ -269,18 +269,18 @@ shardindex read "User" --db contaminated.db --root /tmp/test
 | Go | 1 | 7 | 7 | ✅ | — |
 | TypeScript | 1 | 8 | 12 | ✅ | — |
 | JavaScript | 1 | 11 | 6 | ✅ | — |
-| Java | 2 | 13 | 2 | ✅ | — |
-| C | 3 | 4 | 0 | ⚠️ | BUG-004 (refs 없음) |
-| C++ | 2 | 5 | 0 | ✅ | BUG-002 수정 완료 (.h 포함) + BUG-004 |
-| Ruby | 1 | 10 | 9 | ✅ | — |
-| PHP | 1 | 12 | 0 | ⚠️ | BUG-005 (refs 없음) |
-| Lua | 1 | 6 | 5 | ✅ | — |
-| Julia | 1 | 6 | 0 | ⚠️ | BUG-006 (refs 없음) |
-| Elixir | 1 | 8 | 6 | ✅ | — |
-| Zig | 1 | 7 | 7 | ✅ | — |
-| Dart | 1 | 3 | 0 | ✅ | BUG-003 수정 완료 (메서드 포함) + BUG-010 |
-| Haskell | 1 | 7 | 0 | ⚠️ | BUG-007 (refs 없음) |
-| Scala | 1 | 9 | 0 | ⚠️ | BUG-008 (refs 없음) |
+|| Java | 2 | 13 | 2 | ✅ | — |
+|| C | 3 | 4 | 0 | ✅ | BUG-004 수정 완료 (extract_calls 호출 추가) |
+|| C++ | 2 | 5 | 0 | ✅ | BUG-002 수정 완료 (.h 포함) + BUG-004 |
+|| Ruby | 1 | 10 | 9 | ✅ | — |
+|| PHP | 1 | 12 | 0 | ✅ | BUG-005 수정 완료 (extract_call 구현) |
+|| Lua | 1 | 6 | 5 | ✅ | — |
+|| Julia | 1 | 6 | 0 | ✅ | BUG-006 수정 완료 (call_expression + named_child) |
+|| Elixir | 1 | 8 | 6 | ✅ | — |
+|| Zig | 1 | 7 | 7 | ✅ | — |
+|| Dart | 1 | 3 | 0 | ✅ | BUG-003 수정 완료 (메서드 포함) + BUG-010 |
+|| Haskell | 1 | 7 | 0 | ✅ | BUG-007 수정 완료 (apply 노드 추출) |
+|| Scala | 1 | 9 | 0 | ✅ | BUG-008 수정 완료 (call_expression + new 추출) |
 | Swift | 1 | 10 | 0 | ⚠️ | BUG-009 (refs 없음) |
 | Markdown | — | — | — | ✅ | BUG-001 수정 완료 |
 
@@ -304,7 +304,13 @@ shardindex read "User" --db contaminated.db --root /tmp/test
 | BUG-001 (markdown 누락) | 🔴 | ✅ | **수정 완료** |
 | BUG-002 (.h 누락) | 🔴 | ✅ | **수정 완료** |
 | BUG-003 (Dart 메서드) | 🔴 | ✅ | **수정 완료** |
-| BUG-004~010 (refs 0) | ⚠️ | ⚠️ | 유지 |
+|| BUG-004 (C/C++ refs) | ⚠️ | ✅ | **수정 완료** (extract_calls 호출 추가) |
+|| BUG-005 (PHP refs) | ⚠️ | ✅ | **수정 완료** (extract_call 구현) |
+|| BUG-006 (Julia refs) | ⚠️ | ✅ | **수정 완료** (call_expression + named_child) |
+|| BUG-007 (Haskell refs) | ⚠️ | ✅ | **수정 완료** (apply 노드 추출) |
+|| BUG-008 (Scala refs) | ⚠️ | ✅ | **수정 완료** (call_expression + new 추출) |
+|| BUG-009 (Swift refs) | ⚠️ | ⚠️ | 유지 |
+|| BUG-010 (Dart refs) | ⚠️ | ⚠️ | 유지 |
 | BUG-011 (qualified_name) | ⚠️ | ⚠️ | 유지 |
 | BUG-012 (cross-module-move) | ⚠️ | ⚠️ | 유지 |
 | BUG-013 (migration-check) | ⚠️ | ⚠️ | 유지 |
