@@ -1,15 +1,16 @@
 # ShardIndex — Next Tasks
 
 Generated: 2026-05-26
+Updated: 2026-05-26
 Based on: `references/masterplan.md` v1.3 vs current implementation gap analysis
 
 ## Current State
 
-- **Branch:** master, commit `b8ec17d` (Phase 4-2: Wire LanguageBackend trait + CLI read --compression flag)
-- **Build:** `cargo check` 0 errors, 44 warnings (existing unused code)
-- **Tests:** 236/236 passing
+- **Branch:** master, commit `3dcf2ea` (docs: update NEXT_TODO.md Phase 4-2 완료, 236 tests)
+- **Build:** `cargo check` 0 errors, 46 warnings (existing unused code)
+- **Tests:** 250/250 passing
 - **Schema:** v4 (4 migrations)
-- **Lines:** ~17,765 total across 41 source files
+- **Lines:** ~11,738 total across 42 source files
 - **Languages:** 19 (18 tree-sitter + Markdown)
 
 ---
@@ -52,12 +53,21 @@ adaptive compression are the foundation for all budgeted retrieval features.
 - [x] `CompressionLevel::from_str()` with aliases (sig/s, crit/c, full/f, token_budgeted/budget, raw number)
 - [x] 5 FromStr unit tests (48 total compression tests)
 
-### 4-3. TokenBudgeted MCP responses
+### 4-3. TokenBudgeted MCP responses ✅ DONE
 
-- [ ] Add `token_budget` parameter to MCP tool handlers
-- [ ] Auto-downgrade compression level when budget exceeded
-- [ ] `TokenBudgeted` response wrapper with `budget_remaining` field
-- [ ] MCP `read` handler respects `token_budget` param
+- [x] Create `src/token_budget.rs` (503 lines)
+  - `TokenBudget` struct with `budget_requested`, `tokens_used`, `budget_remaining`, `compression_applied`
+  - 4-stage compression strategy:
+    1. `StripDocstrings` → 2. `StripSignatures` → 3. `RemoveDetails` → 4. `TruncateResults`
+  - `enforce_budget(response, budget) -> TokenBudgetedResponse` — iterative compression with re-estimation
+  - `ok_with_budget()` helper method on MCP responses
+  - `truncate_results()` with count field fix (bug: was re-inserting original count)
+- [x] Wire into `src/mcp/stdio.rs` — 6 tool handlers support `token_budget` param:
+  - `stats`, `search`, `read`, `neighbors`, `impact`, `edit_plan`
+  - Auto-enforce: budget exceeded → `enforce_budget()` → strip docstrings → strip signatures → remove details → truncate
+  - Response metadata: `budget_requested`, `tokens_used`, `compression_applied`
+- [x] `src/main.rs` — `mod token_budget;` added (bin target)
+- [x] 14 new token_budget tests (250 total tests, up from 236)
 
 ### 4-4. Integration tests
 
@@ -168,8 +178,8 @@ Advanced APIs for safe refactoring workflows.
 
 1. ~~**Phase 4-1** — Token estimation (foundation for everything else)**~~ ✅
 2. ~~**Phase 4-2** — Compression pipeline**~~ ✅
-3. **Phase 4-3** — TokenBudgeted MCP responses ← NEXT
-4. **Phase 4-4** — Integration tests
+3. ~~**Phase 4-3** — TokenBudgeted MCP responses**~~ ✅
+4. **Phase 4-4** — Integration tests ← NEXT
 5. **Phase 8** — Complete LanguageBackend trait (is_dynamic_ref, types)
 6. **Phase 9** — Refactoring APIs (impact_deep, dead_code_verify, etc.)
 7. **Phase 11** — Error handling / fallback

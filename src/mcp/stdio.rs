@@ -8,6 +8,7 @@
 //! Protocol: line-delimited JSON-RPC 2.0 over stdin/stdout.
 
 use crate::agent_cache::AgentCache;
+use crate::token_budget;
 use crate::database::IndexDb;
 use crate::format::toon;
 use crate::search::{self, SearchConfig};
@@ -89,6 +90,41 @@ impl McpResponse {
             error: Some(McpError { code, message: message.into() }),
             id,
         }
+    }
+
+    /// Build an MCP response with token budget enforcement.
+    /// If budget is specified and exceeded, the result is automatically compressed.
+    fn ok_with_budget(
+        id: Option<serde_json::Value>,
+        result: &serde_json::Value,
+        format_hint: Option<&str>,
+        token_budget: Option<usize>,
+    ) -> Self {
+        let budget = match token_budget {
+            Some(b) if b > 0 => b,
+            _ => return Self::ok_with_format(id, result, format_hint),
+        };
+
+        // Apply budget enforcement
+        let (budgeted_result, truncated, compression) =
+            token_budget::enforce_budget(result, budget);
+
+        // If truncated, wrap with budget metadata
+        if truncated {
+            let tokens_used = token_budget::estimate_json_tokens(&budgeted_result);
+            let budget_info = serde_json::json!({
+                "result": budgeted_result,
+                "tokens_used": tokens_used,
+                "budget_requested": budget,
+                "budget_remaining": 0,
+                "truncated": true,
+                "compression_applied": compression
+            });
+            return Self::ok_with_format(id, &budget_info, format_hint);
+        }
+
+        // No truncation needed — return normally
+        Self::ok_with_format(id, &budgeted_result, format_hint)
     }
 }
 
@@ -219,13 +255,18 @@ impl StdioMcpServer {
                 "description": "Show index statistics (files, symbols, references count).",
                 "inputSchema": {
                     "type": "object",
-                    "properties": {},
+                    "properties": {
+                        "token_budget": {
+                            "type": "integer",
+                            "description": "Maximum token count for the response. The server will compress/truncate to fit."
+                        }
+                    },
                     "required": []
                 }
             },
             {
                 "name": "search",
-                "description": "Search symbols by name with fuzzy matching and PageRank scoring. Supports kind filter, language filter, min_score, limit, and use_like mode.",
+                "description": "Search symbols by name with fuzzy matching and PageRank scoring. Supports kind filter, language filter, min_score, limit, use_like mode, and token_budget for response size control.",
                 "inputSchema": {
                     "type": "object",
                     "properties": {
@@ -252,6 +293,10 @@ impl StdioMcpServer {
                         "use_like": {
                             "type": "boolean",
                             "description": "Use fast LIKE search instead of fuzzy matching"
+                        },
+                        "token_budget": {
+                            "type": "integer",
+                            "description": "Maximum token count for the response. The server will compress/truncate to fit."
                         }
                     },
                     "required": ["query"]
@@ -259,13 +304,17 @@ impl StdioMcpServer {
             },
             {
                 "name": "read",
-                "description": "List all symbols in a file. Returns symbol names, kinds, line ranges, and signatures.",
+                "description": "List all symbols in a file. Returns symbol names, kinds, line ranges, and signatures. Use token_budget to limit response size.",
                 "inputSchema": {
                     "type": "object",
                     "properties": {
                         "file": {
                             "type": "string",
                             "description": "File path to read symbols from"
+                        },
+                        "token_budget": {
+                            "type": "integer",
+                            "description": "Maximum token count for the response. The server will compress/truncate to fit."
                         }
                     },
                     "required": ["file"]
@@ -273,13 +322,17 @@ impl StdioMcpServer {
             },
             {
                 "name": "neighbors",
-                "description": "Show direct references (callers and callees) for a symbol.",
+                "description": "Show direct references (callers and callees) for a symbol. Use token_budget to limit response size.",
                 "inputSchema": {
                     "type": "object",
                     "properties": {
                         "symbol": {
                             "type": "string",
                             "description": "Symbol name to find neighbors for"
+                        },
+                        "token_budget": {
+                            "type": "integer",
+                            "description": "Maximum token count for the response. The server will compress/truncate to fit."
                         }
                     },
                     "required": ["symbol"]
@@ -287,13 +340,17 @@ impl StdioMcpServer {
             },
             {
                 "name": "impact",
-                "description": "Impact analysis — find all symbols affected by changing a given symbol. Returns impacted callers and references.",
+                "description": "Impact analysis — find all symbols affected by changing a given symbol. Use token_budget to limit response size.",
                 "inputSchema": {
                     "type": "object",
                     "properties": {
                         "symbol": {
                             "type": "string",
                             "description": "Symbol name to analyze impact for"
+                        },
+                        "token_budget": {
+                            "type": "integer",
+                            "description": "Maximum token count for the response. The server will compress/truncate to fit."
                         }
                     },
                     "required": ["symbol"]
@@ -301,7 +358,7 @@ impl StdioMcpServer {
             },
             {
                 "name": "edit_plan",
-                "description": "Pre-edit impact analysis. Analyze the effect of proposed changes (rename, add_param, remove_param, change_return) on dependent symbols.",
+                "description": "Pre-edit impact analysis. Analyze the effect of proposed changes (rename, add_param, remove_param, change_return) on dependent symbols. Use token_budget to limit response size.",
                 "inputSchema": {
                     "type": "object",
                     "properties": {
@@ -328,6 +385,10 @@ impl StdioMcpServer {
                         "depth": {
                             "type": "integer",
                             "description": "Analysis depth (default: 1)"
+                        },
+                        "token_budget": {
+                            "type": "integer",
+                            "description": "Maximum token count for the response. The server will compress/truncate to fit."
                         }
                     },
                     "required": ["symbol"]
@@ -392,10 +453,14 @@ impl StdioMcpServer {
 
     fn tool_stats(
         &self,
-        _args: &serde_json::Value,
+        args: &serde_json::Value,
         id: Option<serde_json::Value>,
         format_hint: Option<&str>,
     ) -> McpResponse {
+        let token_budget = args
+            .get("token_budget")
+            .and_then(|v| v.as_u64())
+            .map(|v| v as usize);
         let result = match self.db.stats() {
             Ok((files, symbols, refs)) => serde_json::json!({
                 "files": files,
@@ -404,7 +469,7 @@ impl StdioMcpServer {
             }),
             Err(e) => return McpResponse::err(id, -1, &format!("Database error: {}", e)),
         };
-        McpResponse::ok_with_format(id, &result, format_hint)
+        McpResponse::ok_with_budget(id, &result, format_hint, token_budget)
     }
 
     fn tool_search(
@@ -423,6 +488,10 @@ impl StdioMcpServer {
         let min_score = args.get("min_score").and_then(|v| v.as_f64()).unwrap_or(0.1);
         let limit = args.get("limit").and_then(|v| v.as_u64()).unwrap_or(50) as usize;
         let use_like = args.get("use_like").and_then(|v| v.as_bool()).unwrap_or(false);
+        let token_budget = args
+            .get("token_budget")
+            .and_then(|v| v.as_u64())
+            .map(|v| v as usize);
 
         let extension_filter: Option<String> = language_filter.as_ref().map(|lang| {
             match lang.to_lowercase().as_str() {
@@ -465,10 +534,11 @@ impl StdioMcpServer {
                 })
                 .collect();
 
-            return McpResponse::ok_with_format(
+            return McpResponse::ok_with_budget(
                 id,
                 &serde_json::json!({"query": query, "results": results, "count": results.len(), "mode": "like"}),
                 format_hint,
+                token_budget,
             );
         }
 
@@ -486,7 +556,7 @@ impl StdioMcpServer {
         match search::advanced_search(&self.db, query, extension_filter.as_deref(), &config) {
             Ok(results) => {
                 let result_json = serde_json::json!({"query": query, "results": results, "count": results.len(), "mode": "fuzzy"});
-                McpResponse::ok_with_format(id, &result_json, format_hint)
+                McpResponse::ok_with_budget(id, &result_json, format_hint, token_budget)
             }
             Err(e) => McpResponse::err(id, -1, &format!("Search error: {}", e)),
         }
@@ -503,10 +573,15 @@ impl StdioMcpServer {
             return McpResponse::err(id, -1, "Missing 'file' parameter");
         }
 
+        let token_budget = args
+            .get("token_budget")
+            .and_then(|v| v.as_u64())
+            .map(|v| v as usize);
+
         match self.db.file_symbols(file_path) {
             Ok(symbols) => {
                 let result_json = serde_json::json!({"file": file_path, "symbols": symbols, "count": symbols.len()});
-                McpResponse::ok_with_format(id, &result_json, format_hint)
+                McpResponse::ok_with_budget(id, &result_json, format_hint, token_budget)
             }
             Err(e) => McpResponse::err(id, -1, &format!("Database error: {}", e)),
         }
@@ -523,6 +598,11 @@ impl StdioMcpServer {
             return McpResponse::err(id, -1, "Missing 'symbol' parameter");
         }
 
+        let token_budget = args
+            .get("token_budget")
+            .and_then(|v| v.as_u64())
+            .map(|v| v as usize);
+
         match self.db.neighbors(symbol) {
             Ok(refs) => {
                 let result = serde_json::json!({
@@ -530,7 +610,7 @@ impl StdioMcpServer {
                     "neighbors": refs,
                     "count": refs.len()
                 });
-                McpResponse::ok_with_format(id, &result, format_hint)
+                McpResponse::ok_with_budget(id, &result, format_hint, token_budget)
             }
             Err(e) => McpResponse::err(id, -1, &format!("Database error: {}", e)),
         }
@@ -547,6 +627,11 @@ impl StdioMcpServer {
             return McpResponse::err(id, -1, "Missing 'symbol' parameter");
         }
 
+        let token_budget = args
+            .get("token_budget")
+            .and_then(|v| v.as_u64())
+            .map(|v| v as usize);
+
         match self.db.impact(symbol) {
             Ok((callers, refs)) => {
                 let result = serde_json::json!({
@@ -555,22 +640,27 @@ impl StdioMcpServer {
                     "references": refs,
                     "impacted_count": callers.len()
                 });
-                McpResponse::ok_with_format(id, &result, format_hint)
+                McpResponse::ok_with_budget(id, &result, format_hint, token_budget)
             }
             Err(e) => McpResponse::err(id, -1, &format!("Database error: {}", e)),
         }
     }
 
- fn tool_edit_plan(
-       &self,
-       args: &serde_json::Value,
-       id: Option<serde_json::Value>,
-       format_hint: Option<&str>,
-   ) -> McpResponse {
+fn tool_edit_plan(
+        &self,
+        args: &serde_json::Value,
+        id: Option<serde_json::Value>,
+        format_hint: Option<&str>,
+    ) -> McpResponse {
         let symbol = args.get("symbol").and_then(|v| v.as_str()).unwrap_or("");
         if symbol.is_empty() {
             return McpResponse::err(id, -1, "Missing 'symbol' parameter");
         }
+
+        let token_budget = args
+            .get("token_budget")
+            .and_then(|v| v.as_u64())
+            .map(|v| v as usize);
 
         let empty: Vec<serde_json::Value> = vec![];
         let changes_raw = args.get("changes").and_then(|v| v.as_array()).unwrap_or(&empty);
@@ -599,7 +689,7 @@ impl StdioMcpServer {
                 let json_result = serde_json::to_value(result).unwrap_or_else(|_| {
                     serde_json::json!({ "error": "Failed to serialize edit plan result" })
                 });
-                McpResponse::ok_with_format(id, &json_result, format_hint)
+                McpResponse::ok_with_budget(id, &json_result, format_hint, token_budget)
             }
             Err(e) => McpResponse::err(id, -1, &format!("Edit plan error: {}", e)),
         }

@@ -25,6 +25,7 @@ mod mcp;
 mod recovery;
 mod search;
 mod token_estimation;
+mod token_budget;
 mod watcher;
 
 use std::sync::{Arc, Mutex};
