@@ -166,6 +166,9 @@ use anyhow::Context;
               return;
           };
 
+          // BUG-011 fix: prevent struct from having itself as parent
+          let effective_parent = parent.filter(|p| *p != name).map(|s| s.to_string());
+
           let sig = format!("struct {}", name);
           result.symbols.push(ParsedSymbol {
               name,
@@ -176,7 +179,7 @@ use anyhow::Context;
               end_col: node.end_position().column,
               signature: Some(sig),
               docstring: None,
-              parent: parent.map(|s| s.to_string()),
+              parent: effective_parent,
           });
       }
 
@@ -223,6 +226,9 @@ use anyhow::Context;
               }
           }
 
+          // BUG-011 fix: prevent enum from having itself as parent
+          let effective_parent = parent.filter(|p| *p != name).map(|s| s.to_string());
+
           let sig = format!("enum {}", name);
           result.symbols.push(ParsedSymbol {
               name,
@@ -233,7 +239,7 @@ use anyhow::Context;
               end_col: node.end_position().column,
               signature: Some(sig),
               docstring: None,
-              parent: parent.map(|s| s.to_string()),
+              parent: effective_parent,
           });
       }
 
@@ -252,6 +258,9 @@ use anyhow::Context;
               return;
           };
 
+          // BUG-011 fix: prevent trait from having itself as parent
+          let effective_parent = parent.filter(|p| *p != name).map(|s| s.to_string());
+
           let sig = format!("trait {}", name);
           result.symbols.push(ParsedSymbol {
               name,
@@ -262,7 +271,7 @@ use anyhow::Context;
               end_col: node.end_position().column,
               signature: Some(sig),
               docstring: None,
-              parent: parent.map(|s| s.to_string()),
+              parent: effective_parent,
           });
       }
 
@@ -315,6 +324,9 @@ use anyhow::Context;
               .and_then(|n| n.utf8_text(source).ok())
               .map(|s| s.to_string());
 
+          // BUG-011 fix: prevent type_alias from having itself as parent
+          let effective_parent = parent.filter(|p| *p != name).map(|s| s.to_string());
+
           result.symbols.push(ParsedSymbol {
               name,
               kind: SymbolKind::Variable,
@@ -324,7 +336,7 @@ use anyhow::Context;
               end_col: node.end_position().column,
               signature: alias_type.map(|t| format!("type {}", t)),
               docstring: None,
-              parent: parent.map(|s| s.to_string()),
+              parent: effective_parent,
           });
       }
 
