@@ -179,6 +179,9 @@ impl CppParser {
             format!("class {}", name)
         };
 
+        // BUG-011 fix: prevent class from having itself as parent
+        let effective_parent = parent.filter(|p| *p != name).map(|s| s.to_string());
+
         result.symbols.push(ParsedSymbol {
             name: name.clone(),
             kind: SymbolKind::Class,
@@ -188,7 +191,7 @@ impl CppParser {
             end_col: node.end_position().column,
             signature: Some(sig),
             docstring: None,
-            parent: parent.map(|s| s.to_string()),
+            parent: effective_parent,
         });
 
         if let Some(b) = base {
@@ -229,6 +232,8 @@ impl CppParser {
             .and_then(|n| n.utf8_text(source).ok())
             .map(|s| s.to_string());
         if let Some(name) = name {
+            // BUG-011 fix: prevent enum from having itself as parent
+            let effective_parent = parent.filter(|p| *p != name).map(|s| s.to_string());
             result.symbols.push(ParsedSymbol {
                 name,
                 kind: SymbolKind::Enum,
@@ -238,7 +243,7 @@ impl CppParser {
                 end_col: node.end_position().column,
                 signature: Some("enum".to_string()),
                 docstring: None,
-                parent: parent.map(|s| s.to_string()),
+                parent: effective_parent,
             });
         }
     }

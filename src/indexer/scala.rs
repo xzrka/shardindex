@@ -125,6 +125,9 @@ impl ScalaParser {
             return;
         };
 
+        // BUG-011 fix: prevent class from having itself as parent
+        let effective_parent = parent.filter(|p| *p != name).map(|s| s.to_string());
+
         result.symbols.push(ParsedSymbol {
             name: name.clone(),
             kind: SymbolKind::Class,
@@ -134,7 +137,7 @@ impl ScalaParser {
             end_col: node.end_position().column,
             signature: Some(format!("class {}", name)),
             docstring: None,
-            parent: parent.map(|s| s.to_string()),
+            parent: effective_parent,
         });
     }
 
@@ -147,6 +150,9 @@ impl ScalaParser {
             return;
         };
 
+        // BUG-011 fix: prevent object from having itself as parent
+        let effective_parent = parent.filter(|p| *p != name).map(|s| s.to_string());
+
         result.symbols.push(ParsedSymbol {
             name: name.clone(),
             kind: SymbolKind::Module,
@@ -156,7 +162,7 @@ impl ScalaParser {
             end_col: node.end_position().column,
             signature: Some(format!("object {}", name)),
             docstring: None,
-            parent: parent.map(|s| s.to_string()),
+            parent: effective_parent,
         });
     }
 
@@ -169,6 +175,9 @@ impl ScalaParser {
             return;
         };
 
+        // BUG-011 fix: prevent trait from having itself as parent
+        let effective_parent = parent.filter(|p| *p != name).map(|s| s.to_string());
+
         result.symbols.push(ParsedSymbol {
             name: name.clone(),
             kind: SymbolKind::Class,
@@ -178,7 +187,7 @@ impl ScalaParser {
             end_col: node.end_position().column,
             signature: Some(format!("trait {}", name)),
             docstring: None,
-            parent: parent.map(|s| s.to_string()),
+            parent: effective_parent,
         });
     }
 

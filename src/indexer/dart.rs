@@ -117,6 +117,9 @@ impl DartParser {
             return;
         };
 
+        // BUG-011 fix: prevent class from having itself as parent
+        let effective_parent = parent.filter(|p| *p != name).map(|s| s.to_string());
+
         result.symbols.push(ParsedSymbol {
             name,
             kind: SymbolKind::Class,
@@ -126,7 +129,7 @@ impl DartParser {
             end_col: node.end_position().column,
             signature: Some(format!("class {{}}")),
             docstring: None,
-            parent: parent.map(|s| s.to_string()),
+            parent: effective_parent,
         });
     }
 
@@ -139,6 +142,9 @@ impl DartParser {
             return;
         };
 
+        // BUG-011 fix: prevent enum from having itself as parent
+        let effective_parent = parent.filter(|p| *p != name).map(|s| s.to_string());
+
         result.symbols.push(ParsedSymbol {
             name,
             kind: SymbolKind::Enum,
@@ -148,7 +154,7 @@ impl DartParser {
             end_col: node.end_position().column,
             signature: Some(format!("enum {{}}")),
             docstring: None,
-            parent: parent.map(|s| s.to_string()),
+            parent: effective_parent,
         });
     }
 
@@ -161,6 +167,9 @@ impl DartParser {
             return;
         };
 
+        // BUG-011 fix: prevent mixin from having itself as parent
+        let effective_parent = parent.filter(|p| *p != name).map(|s| s.to_string());
+
         result.symbols.push(ParsedSymbol {
             name,
             kind: SymbolKind::Class,
@@ -170,7 +179,7 @@ impl DartParser {
             end_col: node.end_position().column,
             signature: Some(format!("mixin {{}}")),
             docstring: None,
-            parent: parent.map(|s| s.to_string()),
+            parent: effective_parent,
         });
     }
 

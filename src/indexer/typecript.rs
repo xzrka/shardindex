@@ -196,6 +196,9 @@ use anyhow::Context;
               });
           }
 
+          // BUG-011 fix: prevent class from having itself as parent
+          let effective_parent = parent.filter(|p| *p != name).map(|s| s.to_string());
+
           result.symbols.push(ParsedSymbol {
               name,
               kind: SymbolKind::Class,
@@ -205,7 +208,7 @@ use anyhow::Context;
               end_col: node.end_position().column,
               signature: Some(signature),
               docstring: None,
-              parent: parent.map(|s| s.to_string()),
+              parent: effective_parent,
           });
       }
 
@@ -412,6 +415,9 @@ use anyhow::Context;
               }
           }
 
+          // BUG-011 fix: prevent enum from having itself as parent
+          let effective_parent = parent.filter(|p| *p != name).map(|s| s.to_string());
+
           let sig = format!("enum {}", name);
           result.symbols.push(ParsedSymbol {
               name,
@@ -422,7 +428,7 @@ use anyhow::Context;
               end_col: node.end_position().column,
               signature: Some(sig),
               docstring: None,
-              parent: parent.map(|s| s.to_string()),
+              parent: effective_parent,
           });
       }
 
@@ -441,6 +447,9 @@ use anyhow::Context;
               return;
           };
 
+          // BUG-011 fix: prevent interface from having itself as parent
+          let effective_parent = parent.filter(|p| *p != name).map(|s| s.to_string());
+
           let sig = format!("interface {}", name);
           result.symbols.push(ParsedSymbol {
               name,
@@ -451,7 +460,7 @@ use anyhow::Context;
               end_col: node.end_position().column,
               signature: Some(sig),
               docstring: None,
-              parent: parent.map(|s| s.to_string()),
+              parent: effective_parent,
           });
       }
 
@@ -470,6 +479,9 @@ use anyhow::Context;
               return;
           };
 
+          // BUG-011 fix: prevent module from having itself as parent
+          let effective_parent = parent.filter(|p| *p != name).map(|s| s.to_string());
+
           let sig = format!("namespace {}", name);
           result.symbols.push(ParsedSymbol {
               name,
@@ -480,7 +492,7 @@ use anyhow::Context;
               end_col: node.end_position().column,
               signature: Some(sig),
               docstring: None,
-              parent: parent.map(|s| s.to_string()),
+              parent: effective_parent,
           });
       }
 

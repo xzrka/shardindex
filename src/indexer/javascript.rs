@@ -247,6 +247,11 @@ use anyhow::Context;
               format!("class {} extends {}", name, bases.join(", "))
           };
 
+          // BUG-011 fix: prevent class from having itself as parent
+          let effective_parent = parent
+              .filter(|p| *p != name)
+              .map(|s| s.to_string());
+
           result.symbols.push(ParsedSymbol {
               name: name.clone(),
               kind: SymbolKind::Class,
@@ -256,7 +261,7 @@ use anyhow::Context;
               end_col: node.end_position().column,
               signature: Some(signature),
               docstring: Self::extract_j_sdoc(node, source),
-              parent: parent.map(|s| s.to_string()),
+              parent: effective_parent,
           });
 
           // Extract methods from class_body

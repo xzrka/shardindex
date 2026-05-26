@@ -138,6 +138,9 @@ impl RubyParser {
             format!("class {}", name)
         };
 
+        // BUG-011 fix: prevent class from having itself as parent
+        let effective_parent = parent.filter(|p| *p != name).map(|s| s.to_string());
+
         result.symbols.push(ParsedSymbol {
             name: name.clone(),
             kind: SymbolKind::Class,
@@ -147,7 +150,7 @@ impl RubyParser {
             end_col: node.end_position().column,
             signature: Some(sig),
             docstring: None,
-            parent: parent.map(|s| s.to_string()),
+            parent: effective_parent,
         });
 
         if let Some(base) = superclass {
