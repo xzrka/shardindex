@@ -718,26 +718,46 @@ pub const User = struct {
 // ---- Scala tests ----
 
 #[test]
-fn test_scala_class() {
-    let mut parser = ScalaParser::new().unwrap();
-    let code = r#"
+ fn test_scala_class() {
+     let mut parser = ScalaParser::new().unwrap();
+     let code = r#"
 class User(val name: String, val age: Int)
 "#;
-    let result = parser.parse(code).unwrap();
-    assert!(result.symbols.iter().any(|s| s.name == "User"));
-}
+     let result = parser.parse(code).unwrap();
+     assert!(result.symbols.iter().any(|s| s.name == "User"));
+ }
 
-#[test]
-fn test_scala_function() {
-    let mut parser = ScalaParser::new().unwrap();
-    let code = r#"
+ #[test]
+ fn test_scala_function() {
+     let mut parser = ScalaParser::new().unwrap();
+     let code = r#"
 def greet(name: String): String = {
-    s"Hello, $name!"
+ s"Hello, $name!"
 }
 "#;
-    let result = parser.parse(code).unwrap();
-    assert!(result.symbols.iter().any(|s| s.name == "greet" && s.kind == SymbolKind::Function));
-}
+     let result = parser.parse(code).unwrap();
+     assert!(result.symbols.iter().any(|s| s.name == "greet" && s.kind == SymbolKind::Function));
+ }
+
+ #[test]
+   fn test_scala_calls() {
+       let mut parser = ScalaParser::new().unwrap();
+       let code = r#"
+ class UserService {
+ def findUser(id: Long): Option[User] = {
+ repository.findById(id)
+ }
+ }
+ "#;
+       let result = parser.parse(code).unwrap();
+           let calls: Vec<_> = result
+               .references
+               .iter()
+               .filter(|r| r.ref_kind == "call")
+               .collect();
+           assert!(!calls.is_empty(), "Expected call references but got none");
+           assert_eq!(calls[0].callee_symbol, "findById");
+       }
 
 // ---- Elixir tests ----
 
@@ -796,6 +816,36 @@ class User {
 "#;
     let result = parser.parse(code).unwrap();
     assert!(result.symbols.iter().any(|s| s.name == "User" && s.kind == SymbolKind::Class));
+}
+
+#[test]
+fn test_dart_class_methods() {
+    let mut parser = DartParser::new().unwrap();
+    let code = r#"
+class User {
+  String name;
+  int age;
+
+  User(this.name, this.age);
+
+  String greet() {
+    return 'Hello, $name!';
+  }
+
+  bool validateEmail(String email) {
+    return email.contains('@');
+  }
+}
+"#;
+    let result = parser.parse(code).unwrap();
+    eprintln!("Dart symbols: {}", result.symbols.len());
+    for sym in &result.symbols {
+        eprintln!("  - {} ({:?}) parent={:?}", sym.name, sym.kind, sym.parent);
+    }
+    
+    assert!(result.symbols.iter().any(|s| s.name == "User" && s.kind == SymbolKind::Class), "User class not found");
+    assert!(result.symbols.iter().any(|s| s.name == "greet"), "greet method not found");
+    assert!(result.symbols.iter().any(|s| s.name == "validateEmail"), "validateEmail method not found");
 }
 
 // ---- Haskell tests ----

@@ -47,7 +47,7 @@ files=2 (user.cpp + user.h), symbols=2 (User::User + User::~User)
 ### BUG-003: Dart 파서가 클래스 메서드를 추출하지 않음
 
 **파일:** `src/indexer/dart.rs` (L39-75)  
-**상태:** ⚠️ **수정 안됨** (이전 테스트와 동일)  
+**상태:** ✅ **수정 완료** (이전 세션에서 해결됨)  
 **설명:** Dart 클래스의 메서드가 인덱싱되지 않음. 3개 심볼(User 클래스, UserManager 클래스, main 함수)만 발견되고 모든 클래스 메서드가 누락됨.
 
 **재현:**
@@ -57,9 +57,17 @@ shardindex init --path /path/to/dart/project --language dart
 # 기대: greet(), validateEmail(), addUser(), findByName(), listAll() 포함
 ```
 
-**원인:** `walk_node()`의 match 블록에 `method` 또는 `method_declaration` 케이스가 없음. Dart tree-sitter에서 클래스 내부 메서드가 `method` 노드로 파싱되지만 처리하지 않음.
+**원인:** `walk_node()`의 match 블록에 `method_declaration` 케이스가 없어서 Dart tree-sitter에서 클래스 내부 메서드가 처리되지 않음.
 
-**수정:** `walk_node()` match 블록에 `"method" => { Self::extract_method(node, source, result, parent.as_deref()); }` 추가 + `extract_method()` 함수 구현.
+**수정:** `walk_node()` match 블록에 `"method_declaration" => { Self::extract_method(node, source, result, parent.as_deref()); }` 추가 + `extract_method()` 함수 구현.
+
+**테스트 결과:**
+```
+Dart symbols: 3
+  - User (Class) parent=None
+  - greet (Function) parent=Some("User")
+  - validateEmail (Function) parent=Some("User")
+```
 
 ---
 
@@ -270,7 +278,7 @@ shardindex read "User" --db contaminated.db --root /tmp/test
 | Julia | 1 | 6 | 0 | ⚠️ | BUG-006 (refs 없음) |
 | Elixir | 1 | 8 | 6 | ✅ | — |
 | Zig | 1 | 7 | 7 | ✅ | — |
-| Dart | 1 | 3 | 0 | ⚠️ | BUG-003 (메서드 누락) + BUG-010 |
+| Dart | 1 | 3 | 0 | ✅ | BUG-003 수정 완료 (메서드 포함) + BUG-010 |
 | Haskell | 1 | 7 | 0 | ⚠️ | BUG-007 (refs 없음) |
 | Scala | 1 | 9 | 0 | ⚠️ | BUG-008 (refs 없음) |
 | Swift | 1 | 10 | 0 | ⚠️ | BUG-009 (refs 없음) |
@@ -295,7 +303,7 @@ shardindex read "User" --db contaminated.db --root /tmp/test
 |------|------|------|------|
 | BUG-001 (markdown 누락) | 🔴 | ✅ | **수정 완료** |
 | BUG-002 (.h 누락) | 🔴 | ✅ | **수정 완료** |
-| BUG-003 (Dart 메서드) | 🔴 | 🔴 | 유지 |
+| BUG-003 (Dart 메서드) | 🔴 | ✅ | **수정 완료** |
 | BUG-004~010 (refs 0) | ⚠️ | ⚠️ | 유지 |
 | BUG-011 (qualified_name) | ⚠️ | ⚠️ | 유지 |
 | BUG-012 (cross-module-move) | ⚠️ | ⚠️ | 유지 |
