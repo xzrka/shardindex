@@ -5,11 +5,11 @@ Based on: `references/masterplan.md` v1.3 vs current implementation gap analysis
 
 ## Current State
 
-- **Branch:** master, commit `37e5581` (refactor: Smart YAML -> TOON)
-- **Build:** `cargo check` 0 errors, 41 warnings (existing unused code)
-- **Tests:** 172/172 passing
+- **Branch:** master, commit `b8ec17d` (Phase 4-2: Wire LanguageBackend trait + CLI read --compression flag)
+- **Build:** `cargo check` 0 errors, 44 warnings (existing unused code)
+- **Tests:** 236/236 passing
 - **Schema:** v4 (4 migrations)
-- **Lines:** ~16,032 total across 37 source files
+- **Lines:** ~17,765 total across 41 source files
 - **Languages:** 19 (18 tree-sitter + Markdown)
 
 ---
@@ -19,7 +19,7 @@ Based on: `references/masterplan.md` v1.3 vs current implementation gap analysis
 The masterplan Phase 4 is the next major milestone. Token estimation and
 adaptive compression are the foundation for all budgeted retrieval features.
 
-### 4-1. Token estimation per symbol ~~(DONE)~~
+### 4-1. Token estimation per symbol ✅ DONE
 
 **Plan:** `.hermes/plans/phase4-token-estimation.md`
 
@@ -38,17 +38,19 @@ adaptive compression are the foundation for all budgeted retrieval features.
   - `SearchResultJson` adds `token_count` field
 - [x] Unit tests for `estimate_token_count()` across languages/patterns (16 tests)
 
-### 4-2. Adaptive compression pipeline
+### 4-2. Adaptive compression pipeline ✅ DONE
 
 - [x] Create `src/compression.rs`
   - `CompressionLevel` enum: `SignatureOnly`, `CriticalBranches`, `FullBody`, `TokenBudgeted(u32)`
   - `compress_symbol(source, symbol, level) -> CompressedSymbol`
   - Extract critical branches (if/else, loops, error handling, return statements)
   - Extract side effects (DB calls, network calls, mutations)
-- [ ] Wire into `LanguageBackend` trait
+- [x] Wire into `LanguageBackend` trait
   - Add `slice_symbol()` method (masterplan §8.1)
   - Add `estimate_tokens()` method (masterplan §8.1)
-- [ ] CLI: `read <symbol> --compression=critical_branches`
+- [x] CLI: `read <symbol> --compression=critical_branches`
+- [x] `CompressionLevel::from_str()` with aliases (sig/s, crit/c, full/f, token_budgeted/budget, raw number)
+- [x] 5 FromStr unit tests (48 total compression tests)
 
 ### 4-3. TokenBudgeted MCP responses
 
@@ -67,13 +69,14 @@ adaptive compression are the foundation for all budgeted retrieval features.
 
 ## Phase 8 — LanguageBackend Trait Completion
 
-The `Parser` trait exists but is missing methods from the masterplan spec.
+The `Parser` trait now has `slice_symbol()` and `estimate_tokens()` with default
+implementations. May still need `is_dynamic_ref()` and explicit types.
 
 - [ ] Add to `Parser` trait:
-  - `slice_symbol(&self, source, symbol, mode) -> Result<SymbolSlice>`
-  - `estimate_tokens(&self, snippet: &str) -> usize`
-  - `is_dynamic_ref(&self, node) -> bool`
-- [ ] Define `CompressionMode` enum (masterplan §8.1)
+  - [x] `slice_symbol(&self, source, symbol, mode) -> Result<SymbolSlice>`
+  - [x] `estimate_tokens(&self, snippet: &str) -> usize`
+  - [ ] `is_dynamic_ref(&self, node) -> bool`
+- [ ] Define `CompressionMode` enum (masterplan §8.1) — check if `CompressionLevel` covers this
 - [ ] Define `SymbolSlice` struct with fields:
   - `signature`, `critical_branches`, `side_effects`, `key_assignments`, `return_statement`
 
@@ -163,11 +166,11 @@ Advanced APIs for safe refactoring workflows.
 
 ## Recommended Order
 
-1. **Phase 4-1** — Token estimation (foundation for everything else)
-2. **Phase 4-2** — Compression pipeline
-3. **Phase 8** — Complete LanguageBackend trait
-4. **Phase 4-3** — TokenBudgeted MCP responses
-5. **Phase 4-4** — Integration tests
+1. ~~**Phase 4-1** — Token estimation (foundation for everything else)**~~ ✅
+2. ~~**Phase 4-2** — Compression pipeline**~~ ✅
+3. **Phase 4-3** — TokenBudgeted MCP responses ← NEXT
+4. **Phase 4-4** — Integration tests
+5. **Phase 8** — Complete LanguageBackend trait (is_dynamic_ref, types)
 6. **Phase 9** — Refactoring APIs (impact_deep, dead_code_verify, etc.)
 7. **Phase 11** — Error handling / fallback
 8. **Phase 12** — Benchmarks
