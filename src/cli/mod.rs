@@ -228,6 +228,92 @@ pub enum Commands {
         #[arg(long, value_enum, default_value_t = OutputFormat::default())]
         format: OutputFormat,
     },
+
+    /// Deep impact analysis (transitive dependencies)
+    ImpactDeep {
+        /// Symbol name
+        symbol: String,
+
+        /// Database path
+        #[arg(long, default_value = ".shardindex.db")]
+        db: String,
+
+        /// Max depth (default: 3)
+        #[arg(short, long, default_value_t = 3)]
+        depth: u8,
+
+        /// Include test files
+        #[arg(long)]
+        include_tests: bool,
+
+        /// Include dynamic references
+        #[arg(long)]
+        include_dynamic: bool,
+
+        /// Output format (default: json)
+        #[arg(long, value_enum, default_value_t = OutputFormat::Json)]
+        format: OutputFormat,
+    },
+
+    /// Dead code verification (multi-stage)
+    DeadCodeVerify {
+        /// Symbol name
+        symbol: String,
+
+        /// Database path
+        #[arg(long, default_value = ".shardindex.db")]
+        db: String,
+
+        /// Stages to run (default: all)
+        #[arg(long, value_delimiter = ',')]
+        stages: Option<Vec<String>>,
+
+        /// Output format (default: json)
+        #[arg(long, value_enum, default_value_t = OutputFormat::Json)]
+        format: OutputFormat,
+    },
+
+    /// Cross-module move analysis
+    CrossModuleMove {
+        /// Symbol name
+        symbol: String,
+
+        /// Target module
+        target_module: String,
+
+        /// Database path
+        #[arg(long, default_value = ".shardindex.db")]
+        db: String,
+
+        /// Auto-update imports (default: true)
+        #[arg(long, default_value_t = true)]
+        update_imports: bool,
+
+        /// Dry run (default: true)
+        #[arg(long, default_value_t = true)]
+        dry_run: bool,
+
+        /// Output format (default: json)
+        #[arg(long, value_enum, default_value_t = OutputFormat::Json)]
+        format: OutputFormat,
+    },
+
+    /// Signature migration compatibility check
+    SignatureMigrationCheck {
+        /// Symbol name
+        symbol: String,
+
+        /// New signature
+        new_signature: String,
+
+        /// Database path
+        #[arg(long, default_value = ".shardindex.db")]
+        db: String,
+
+        /// Output format (default: json)
+        #[arg(long, value_enum, default_value_t = OutputFormat::Json)]
+        format: OutputFormat,
+    },
 }
 
 #[derive(Subcommand, Debug)]

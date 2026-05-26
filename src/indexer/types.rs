@@ -133,8 +133,8 @@ pub trait SourceCodeParser {
         &self,
         source: &str,
         symbol: &ParsedSymbol,
-        level: crate::compression::CompressionLevel,
-    ) -> crate::compression::CompressedSymbol {
+        level: crate::compression::CompressionMode,
+    ) -> crate::compression::SymbolSlice {
         crate::compression::compress_symbol(source, symbol.start_line, symbol.end_line, level)
     }
 
@@ -146,5 +146,19 @@ pub trait SourceCodeParser {
     /// Aligns with masterplan §8.1 `LanguageBackend::estimate_tokens()`.
     fn estimate_tokens(&self, snippet: &str) -> usize {
         crate::token_estimation::estimate_token_count(snippet)
+    }
+
+    /// Detect if a reference represents a dynamic (runtime-resolved) reference.
+    ///
+    /// Default implementation checks common dynamic reference kinds:
+    /// `dynamic_dispatch`, `virtual_call`, `string_ref`.
+    /// Language-specific parsers can override for AST-aware detection.
+    ///
+    /// Aligns with masterplan §8.1 `LanguageBackend::is_dynamic_ref()`.
+    fn is_dynamic_ref(&self, ref_kind: &str) -> bool {
+        matches!(
+            ref_kind,
+            "dynamic_dispatch" | "virtual_call" | "string_ref"
+        )
     }
 }

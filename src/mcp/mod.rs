@@ -451,6 +451,136 @@ pub async fn handle_verify(
     )
 }
 
+/// impact_deep — 다단계 전달 의존성 추적
+pub async fn handle_impact_deep(
+    params: serde_json::Value,
+    state: ServerState,
+) -> JsonRpcResponse {
+    let symbol = params.get("symbol").and_then(|v| v.as_str()).unwrap_or("");
+    if symbol.is_empty() {
+        return JsonRpcResponse::error(get_id(&params), -32601, "Missing 'symbol' parameter");
+    }
+
+    let depth: u8 = params.get("depth").and_then(|v| v.as_u64()).unwrap_or(3) as u8;
+    let include_tests: bool = params.get("include_tests").and_then(|v| v.as_bool()).unwrap_or(false);
+    let include_dynamic: bool =
+        params.get("include_dynamic").and_then(|v| v.as_bool()).unwrap_or(false);
+    let risk_analysis: bool =
+        params.get("risk_analysis").and_then(|v| v.as_bool()).unwrap_or(true);
+    let token_budget: Option<u32> = params.get("token_budget").and_then(|v| v.as_u64()).map(|v| v as u32);
+
+    let db = state.db.lock().unwrap();
+    match crate::graph::impact_deep(&db, symbol, depth, include_tests, include_dynamic, risk_analysis, token_budget) {
+        Ok(result) => JsonRpcResponse::success(
+            get_id(&params),
+            serde_json::to_value(result).unwrap_or_else(|_| serde_json::json!({ "error": "Failed to serialize result" })),
+        ),
+        Err(e) => JsonRpcResponse::error(
+            get_id(&params),
+            -32603,
+            &format!("Impact deep error: {}", e),
+        ),
+    }
+}
+
+/// dead_code_verify — 다단계 dead code 검증
+pub async fn handle_dead_code_verify(
+    params: serde_json::Value,
+    state: ServerState,
+) -> JsonRpcResponse {
+    let symbol = params.get("symbol").and_then(|v| v.as_str()).unwrap_or("");
+    if symbol.is_empty() {
+        return JsonRpcResponse::error(get_id(&params), -32601, "Missing 'symbol' parameter");
+    }
+
+    let empty: Vec<serde_json::Value> = vec![];
+    let stages_raw = params.get("stages").and_then(|v| v.as_array()).unwrap_or(&empty);
+    let stages: Vec<&str> = stages_raw.iter().filter_map(|v| v.as_str()).map(|s| s).collect();
+    let min_confidence: f64 =
+        params.get("min_confidence_for_deletion").and_then(|v| v.as_f64()).unwrap_or(0.8);
+
+    let db = state.db.lock().unwrap();
+    match crate::graph::dead_code_verify(&db, symbol, &stages, min_confidence) {
+        Ok(result) => JsonRpcResponse::success(
+            get_id(&params),
+            serde_json::to_value(result).unwrap_or_else(|_| serde_json::json!({ "error": "Failed to serialize result" })),
+        ),
+        Err(e) => JsonRpcResponse::error(
+            get_id(&params),
+            -32603,
+            &format!("Dead code verify error: {}", e),
+        ),
+    }
+}
+
+/// cross_module_move — 모듈 간 심볼 이전
+pub async fn handle_cross_module_move(
+    params: serde_json::Value,
+    state: ServerState,
+) -> JsonRpcResponse {
+    let symbol = params.get("symbol").and_then(|v| v.as_str()).unwrap_or("");
+    if symbol.is_empty() {
+        return JsonRpcResponse::error(get_id(&params), -32601, "Missing 'symbol' parameter");
+    }
+
+    let target_module =
+        params.get("target_module").and_then(|v| v.as_str()).unwrap_or("");
+    if target_module.is_empty() {
+        return JsonRpcResponse::error(get_id(&params), -32601, "Missing 'target_module' parameter");
+    }
+
+    let update_imports: bool = params.get("update_imports").and_then(|v| v.as_bool()).unwrap_or(true);
+    let update_string_refs: bool =
+        params.get("update_string_refs").and_then(|v| v.as_bool()).unwrap_or(false);
+    let dry_run: bool = params.get("dry_run").and_then(|v| v.as_bool()).unwrap_or(true);
+
+    let db = state.db.lock().unwrap();
+    match crate::graph::cross_module_move(&db, symbol, target_module, update_imports, update_string_refs, dry_run) {
+        Ok(result) => JsonRpcResponse::success(
+            get_id(&params),
+            serde_json::to_value(result).unwrap_or_else(|_| serde_json::json!({ "error": "Failed to serialize result" })),
+        ),
+        Err(e) => JsonRpcResponse::error(
+            get_id(&params),
+            -32603,
+            &format!("Cross module move error: {}", e),
+        ),
+    }
+}
+
+/// signature_migration_check — 시그니처 변경 호환성 검증
+pub async fn handle_signature_migration_check(
+    params: serde_json::Value,
+    state: ServerState,
+) -> JsonRpcResponse {
+    let symbol = params.get("symbol").and_then(|v| v.as_str()).unwrap_or("");
+    if symbol.is_empty() {
+        return JsonRpcResponse::error(get_id(&params), -32601, "Missing 'symbol' parameter");
+    }
+
+    let new_signature =
+        params.get("new_signature").and_then(|v| v.as_str()).unwrap_or("");
+    if new_signature.is_empty() {
+        return JsonRpcResponse::error(get_id(&params), -32601, "Missing 'new_signature' parameter");
+    }
+
+    let check_call_sites: bool =
+        params.get("check_call_sites").and_then(|v| v.as_bool()).unwrap_or(true);
+
+    let db = state.db.lock().unwrap();
+    match crate::graph::signature_migration_check(&db, symbol, new_signature, check_call_sites) {
+        Ok(result) => JsonRpcResponse::success(
+            get_id(&params),
+            serde_json::to_value(result).unwrap_or_else(|_| serde_json::json!({ "error": "Failed to serialize result" })),
+        ),
+        Err(e) => JsonRpcResponse::error(
+            get_id(&params),
+            -32603,
+            &format!("Signature migration error: {}", e),
+        ),
+    }
+}
+
 /// ─── HTTP REST 핸들러 ───
 
 pub async fn rest_stats(
@@ -630,6 +760,10 @@ pub async fn jsonrpc_handler(
         "shardindex.stats" => handle_stats(req.params, state).await,
         "shardindex.edit_plan" => handle_edit_plan(req.params, state).await,
         "shardindex.verify" => handle_verify(req.params, state).await,
+        "shardindex.impact_deep" => handle_impact_deep(req.params, state).await,
+        "shardindex.dead_code_verify" => handle_dead_code_verify(req.params, state).await,
+        "shardindex.cross_module_move" => handle_cross_module_move(req.params, state).await,
+        "shardindex.signature_migration_check" => handle_signature_migration_check(req.params, state).await,
         unknown => JsonRpcResponse::error(
             req.id.clone(),
             -32601,

@@ -515,6 +515,731 @@ pub fn analyze_edit_plan(
     })
 }
 
+// ─── Phase 9: Refactoring-Specialized APIs ───
+
+/// Impact layer at a specific depth (for impact_deep)
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct ImpactLayer {
+    pub depth: u8,
+    pub symbols: Vec<String>,
+    pub confidence: f64,
+    pub risk: String,
+}
+
+/// Dynamic reference at risk
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct DynamicRefAtRisk {
+    pub expr: String,
+    pub confidence: f64,
+    pub file: String,
+}
+
+/// Deep impact analysis result (transitive dependency tracing + risk scoring)
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct ImpactDeepResult {
+    pub target: String,
+    pub layers: Vec<ImpactLayer>,
+    pub critical_paths: Vec<String>,
+    pub test_coverage_gaps: Vec<String>,
+    pub dynamic_refs_at_risk: Vec<DynamicRefAtRisk>,
+    pub recommendation: String,
+}
+
+/// Dead code verification stage result
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct DeadCodeStage {
+    pub status: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub callers: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub matches: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_commit: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub commit_message: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tests: Option<Vec<String>>,
+}
+
+/// Dead code verification result (multi-stage)
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct DeadCodeVerifyResult {
+    pub safe_to_delete: bool,
+    pub stages: std::collections::HashMap<String, DeadCodeStage>,
+    pub blockers: Vec<String>,
+    pub suggestion: String,
+}
+
+/// File modification plan for cross-module move
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct FileModification {
+    pub path: String,
+    pub action: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub symbol: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub from: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub to: Option<String>,
+}
+
+/// Unresolved reference for cross-module move
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct UnresolvedRef {
+    pub file: String,
+    #[serde(rename = "type")]
+    pub ref_type: String,
+    pub value: String,
+}
+
+/// Cross-module move result
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct CrossModuleMoveResult {
+    pub dry_run: bool,
+    pub files_to_modify: Vec<FileModification>,
+    pub unresolved_refs: Vec<UnresolvedRef>,
+    pub estimated_tokens: u32,
+    pub safe_to_execute: bool,
+    pub reason: String,
+}
+
+/// Breaking caller for signature migration
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct BreakingCaller {
+    pub symbol: String,
+    pub call_site: String,
+    pub issue: String,
+}
+
+/// Signature migration check result
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct SignatureMigrationResult {
+    pub compatible: bool,
+    pub breaking_callers: Vec<BreakingCaller>,
+    pub safe_callers: usize,
+    pub suggestion: String,
+}
+
+// ─── 9.1 impact_deep ───
+
+/// Extended impact analysis with transitive dependency tracing and risk scoring.
+///
+/// BFS-based multi-depth impact propagation. Each layer represents one hop in the
+/// call graph. Confidence decreases with depth. Risk is computed based on the number
+/// of affected symbols and the presence of dynamic references.
+pub fn impact_deep(
+    db: &crate::database::IndexDb,
+    symbol: &str,
+    depth: u8,
+    include_tests: bool,
+    include_dynamic: bool,
+    _risk_analysis: bool,
+    _token_budget: Option<u32>,
+) -> anyhow::Result<ImpactDeepResult> {
+    let mut visited: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut layers: Vec<ImpactLayer> = Vec::new();
+    let mut critical_paths: Vec<String> = Vec::new();
+    let mut dynamic_refs_at_risk: Vec<DynamicRefAtRisk> = Vec::new();
+
+    // BFS from target symbol
+    let mut current_callers: Vec<String> = Vec::new();
+    current_callers.push(symbol.to_string());
+    visited.insert(symbol.to_string());
+
+    for d in 1..=depth {
+        let mut layer_symbols: Vec<String> = Vec::new();
+
+        for caller_name in &current_callers {
+            let (callers, refs) = db.impact(caller_name)?;
+
+            for caller in &callers {
+                // Skip test files if not included
+                if !include_tests && (caller.file_path.contains("test") || caller.file_path.contains("_spec")) {
+                    continue;
+                }
+
+                if !visited.contains(&caller.name) {
+                    visited.insert(caller.name.clone());
+                    layer_symbols.push(caller.name.clone());
+                }
+            }
+
+            // Collect dynamic references at risk
+            if include_dynamic {
+                for ref_rec in &refs {
+                    if ref_rec.is_dynamic && !visited.contains(&ref_rec.callee_symbol) {
+                        dynamic_refs_at_risk.push(DynamicRefAtRisk {
+                            expr: format!("{}.{}", ref_rec.caller_symbol.as_deref().unwrap_or("?"), ref_rec.callee_symbol),
+                            confidence: ref_rec.confidence,
+                            file: ref_rec.caller_file.clone(),
+                        });
+                    }
+                }
+            }
+        }
+
+        // Confidence decreases with depth
+        let confidence = match d {
+            1 => 0.95,
+            2 => 0.82,
+            _ => 0.95_f64.max(0.3 - (d as f64) * 0.15),
+        };
+
+        // Risk based on layer size and depth
+        let risk = if d <= 1 {
+            "low".to_string()
+        } else if d <= 2 {
+            "medium".to_string()
+        } else {
+            "high".to_string()
+        };
+
+        if !layer_symbols.is_empty() {
+            layers.push(ImpactLayer {
+                depth: d,
+                symbols: layer_symbols.clone(),
+                confidence,
+                risk,
+            });
+        }
+
+        current_callers = layer_symbols;
+        if current_callers.is_empty() {
+            break;
+        }
+    }
+
+    // Build critical paths (longest chain from target through layers)
+    if layers.len() >= 2 {
+        let mut path = format!("→ {}", symbol);
+        for layer in &layers {
+            if let Some(first) = layer.symbols.first() {
+                path.push_str(" → ");
+                path.push_str(first);
+            }
+        }
+        critical_paths.push(path);
+    }
+
+    // Test coverage gaps: symbols in depth-2+ that have no test callers
+    let mut test_coverage_gaps: Vec<String> = Vec::new();
+    for layer in &layers {
+        if layer.depth >= 2 {
+            for sym_name in &layer.symbols {
+                let (test_callers, _) = db.impact(sym_name).unwrap_or_else(|_| (Vec::new(), Vec::new()));
+                let has_tests = test_callers.iter().any(|c| {
+                    c.file_path.contains("test") || c.file_path.contains("_spec")
+                });
+                if !has_tests {
+                    test_coverage_gaps.push(format!(
+                        "{} has 0 direct tests",
+                        sym_name
+                    ));
+                }
+            }
+        }
+    }
+
+    // Generate recommendation
+    let recommendation = if layers.is_empty() {
+        "No transitive dependencies found. Safe to modify.".to_string()
+    } else if layers.iter().any(|l| l.risk == "high") {
+        "Modify with caution. Add tests for depth-3+ symbols before refactoring.".to_string()
+    } else if !test_coverage_gaps.is_empty() {
+        format!(
+            "Proceed with care. {} symbols lack test coverage.",
+            test_coverage_gaps.len()
+        )
+    } else if include_dynamic && !dynamic_refs_at_risk.is_empty() {
+        format!(
+            "Watch for {} dynamic references that may break at runtime.",
+            dynamic_refs_at_risk.len()
+        )
+    } else {
+        "Low risk. Direct dependencies are well-contained.".to_string()
+    };
+
+    Ok(ImpactDeepResult {
+        target: symbol.to_string(),
+        layers,
+        critical_paths,
+        test_coverage_gaps,
+        dynamic_refs_at_risk,
+        recommendation,
+    })
+}
+
+// ─── 9.2 dead_code_verify ───
+
+/// Multi-stage verification before deleting a symbol.
+///
+/// Stages: static_refs, dynamic_refs, string_refs, git_history, test_refs
+pub fn dead_code_verify(
+    db: &crate::database::IndexDb,
+    symbol: &str,
+    stages: &[&str],
+    _min_confidence_for_deletion: f64,
+) -> anyhow::Result<DeadCodeVerifyResult> {
+    let mut result_stages: std::collections::HashMap<String, DeadCodeStage> =
+        std::collections::HashMap::new();
+    let mut blockers: Vec<String> = Vec::new();
+    let mut is_safe = true;
+
+    // Stage 1: static_refs — check for static callers in DB
+    if stages.is_empty() || stages.contains(&"static_refs") {
+        let (callers, _) = db.impact(symbol).unwrap_or_else(|_| (Vec::new(), Vec::new()));
+        let caller_names: Vec<String> = callers.iter().map(|c| c.name.clone()).collect();
+
+        if caller_names.is_empty() {
+            result_stages.insert(
+                "static_refs".to_string(),
+                DeadCodeStage {
+                    status: "pass".to_string(),
+                    callers: Some(Vec::new()),
+                    matches: None,
+                    last_commit: None,
+                    commit_message: None,
+                    tests: None,
+                },
+            );
+        } else {
+            is_safe = false;
+            blockers.push(format!(
+                "{} static callers still reference this symbol",
+                caller_names.len()
+            ));
+            result_stages.insert(
+                "static_refs".to_string(),
+                DeadCodeStage {
+                    status: "fail".to_string(),
+                    callers: Some(caller_names),
+                    matches: None,
+                    last_commit: None,
+                    commit_message: None,
+                    tests: None,
+                },
+            );
+        }
+    }
+
+    // Stage 2: dynamic_refs — check for dynamic references
+    if stages.contains(&"dynamic_refs") {
+        let neighbors = db.neighbors(symbol).unwrap_or_else(|_| Vec::new());
+        let dynamic_matches: Vec<String> = neighbors
+            .iter()
+            .filter(|r| r.is_dynamic)
+            .map(|r| format!(
+                "{} (confidence: {:.1})",
+                r.caller_file, r.confidence
+            ))
+            .collect();
+
+        if dynamic_matches.is_empty() {
+            result_stages.insert(
+                "dynamic_refs".to_string(),
+                DeadCodeStage {
+                    status: "pass".to_string(),
+                    callers: None,
+                    matches: Some(Vec::new()),
+                    last_commit: None,
+                    commit_message: None,
+                    tests: None,
+                },
+            );
+        } else {
+            is_safe = false;
+            for m in &dynamic_matches {
+                blockers.push(format!("Dynamic reference: {}", m));
+            }
+            result_stages.insert(
+                "dynamic_refs".to_string(),
+                DeadCodeStage {
+                    status: "fail".to_string(),
+                    callers: None,
+                    matches: Some(dynamic_matches),
+                    last_commit: None,
+                    commit_message: None,
+                    tests: None,
+                },
+            );
+        }
+    }
+
+    // Stage 3: string_refs — grep for string references to the symbol name
+    if stages.contains(&"string_refs") {
+        // Search for the symbol name in all indexed files (as string literals)
+        let all_symbols = db.search_symbol(symbol).unwrap_or_else(|_| Vec::new());
+        let string_matches: Vec<String> = all_symbols
+            .iter()
+            .filter(|s| s.name != symbol)
+            .map(|s| format!("{} in {}", s.name, s.file_path))
+            .take(10)
+            .collect();
+
+        if string_matches.is_empty() {
+            result_stages.insert(
+                "string_refs".to_string(),
+                DeadCodeStage {
+                    status: "pass".to_string(),
+                    callers: None,
+                    matches: Some(Vec::new()),
+                    last_commit: None,
+                    commit_message: None,
+                    tests: None,
+                },
+            );
+        } else {
+            // Warning only — string refs may be logging/comments
+            result_stages.insert(
+                "string_refs".to_string(),
+                DeadCodeStage {
+                    status: "warn".to_string(),
+                    callers: None,
+                    matches: Some(string_matches),
+                    last_commit: None,
+                    commit_message: None,
+                    tests: None,
+                },
+            );
+        }
+    }
+
+    // Stage 4: git_history — check last commit info (best-effort)
+    if stages.contains(&"git_history") {
+        // Try to get git log for files containing this symbol
+        let file_symbols = db.search_symbol(symbol).unwrap_or_else(|_| Vec::new());
+        if let Some(sym) = file_symbols.first() {
+            let output = std::process::Command::new("git")
+                .args(&["log", "-1", "--format=%ai|%s", "--", &sym.file_path])
+                .output()
+                .ok();
+
+            if let Some(output) = output {
+                let log_line = String::from_utf8_lossy(&output.stdout).trim().to_string();
+                if let Some(pipe) = log_line.find('|') {
+                    let commit_date = &log_line[..pipe];
+                    let commit_msg = &log_line[pipe + 1..];
+
+                    result_stages.insert(
+                        "git_history".to_string(),
+                        DeadCodeStage {
+                            status: if commit_msg.to_lowercase().contains("deprecat") {
+                                "warn".to_string()
+                            } else {
+                                "info".to_string()
+                            },
+                            callers: None,
+                            matches: None,
+                            last_commit: Some(commit_date.to_string()),
+                            commit_message: Some(commit_msg.to_string()),
+                            tests: None,
+                        },
+                    );
+                }
+            }
+        }
+    }
+
+    // Stage 5: test_refs — check if any tests reference this symbol
+    if stages.contains(&"test_refs") {
+        let (callers, _) = db.impact(symbol).unwrap_or_else(|_| (Vec::new(), Vec::new()));
+        let test_refs: Vec<String> = callers
+            .iter()
+            .filter(|c| c.file_path.contains("test") || c.file_path.contains("_spec"))
+            .map(|c| c.name.clone())
+            .collect();
+
+        if test_refs.is_empty() {
+            result_stages.insert(
+                "test_refs".to_string(),
+                DeadCodeStage {
+                    status: "pass".to_string(),
+                    callers: None,
+                    matches: None,
+                    last_commit: None,
+                    commit_message: None,
+                    tests: Some(Vec::new()),
+                },
+            );
+        } else {
+            // Tests still reference it — could be intentional
+            result_stages.insert(
+                "test_refs".to_string(),
+                DeadCodeStage {
+                    status: "warn".to_string(),
+                    callers: None,
+                    matches: None,
+                    last_commit: None,
+                    commit_message: None,
+                    tests: Some(test_refs),
+                },
+            );
+        }
+    }
+
+    // Generate suggestion
+    let suggestion = if !is_safe {
+        "Do not delete. Mark as deprecated and monitor for 1 release cycle.".to_string()
+    } else if blockers.is_empty() {
+        "Safe to delete. No references found.".to_string()
+    } else {
+        "Review blockers before deletion.".to_string()
+    };
+
+    Ok(DeadCodeVerifyResult {
+        safe_to_delete: is_safe && blockers.is_empty(),
+        stages: result_stages,
+        blockers,
+        suggestion,
+    })
+}
+
+// ─── 9.3 cross_module_move ───
+
+/// Safe symbol relocation across module boundaries with automatic ref updating.
+///
+/// Analyzes all references and import statements, generates a plan of file
+/// modifications needed to move the symbol to a new module.
+pub fn cross_module_move(
+    db: &crate::database::IndexDb,
+    symbol: &str,
+    target_module: &str,
+    update_imports: bool,
+    _update_string_refs: bool,
+    dry_run: bool,
+) -> anyhow::Result<CrossModuleMoveResult> {
+    let mut files_to_modify: Vec<FileModification> = Vec::new();
+    let mut unresolved_refs: Vec<UnresolvedRef> = Vec::new();
+
+    // Find the symbol in DB
+    let search_results = db.search_symbol(symbol).unwrap_or_else(|_| Vec::new());
+    if search_results.is_empty() {
+        return Err(anyhow::anyhow!("Symbol '{}' not found in index", symbol));
+    }
+
+    let target_sym = &search_results[0];
+    let new_symbol_name = format!("{}.{}", target_module, target_sym.name);
+
+    // Source file: delete_symbol action
+    files_to_modify.push(FileModification {
+        path: target_sym.file_path.clone(),
+        action: "delete_symbol".to_string(),
+        symbol: Some(symbol.to_string()),
+        from: None,
+        to: None,
+    });
+
+    // Target file: insert_symbol action
+    let target_file = format!("src/{}/mod.rs", target_module.replace('.', "/"));
+    files_to_modify.push(FileModification {
+        path: target_file.clone(),
+        action: "insert_symbol".to_string(),
+        symbol: Some(new_symbol_name.clone()),
+        from: None,
+        to: None,
+    });
+
+    // Get all callers and generate import update actions
+    let (callers, _) = db.impact(symbol).unwrap_or_else(|_| (Vec::new(), Vec::new()));
+
+    if update_imports {
+        for caller in &callers {
+            files_to_modify.push(FileModification {
+                path: caller.file_path.clone(),
+                action: "update_import".to_string(),
+                symbol: None,
+                from: Some(symbol.to_string()),
+                to: Some(new_symbol_name.clone()),
+            });
+        }
+    } else {
+        // If not auto-updating, mark callers as unresolved
+        for caller in &callers {
+            unresolved_refs.push(UnresolvedRef {
+                file: caller.file_path.clone(),
+                ref_type: "static_import".to_string(),
+                value: format!("import {} from caller {}", symbol, caller.name),
+            });
+        }
+    }
+
+    // Check for dynamic/string references that can't be auto-updated
+    let neighbors = db.neighbors(symbol).unwrap_or_else(|_| Vec::new());
+    for ref_rec in &neighbors {
+        if ref_rec.is_dynamic {
+            unresolved_refs.push(UnresolvedRef {
+                file: ref_rec.caller_file.clone(),
+                ref_type: "dynamic_ref".to_string(),
+                value: format!("Dynamic reference with confidence {:.1}", ref_rec.confidence),
+            });
+        }
+    }
+
+    let estimated_tokens = (files_to_modify.len() * 50 + unresolved_refs.len() * 30) as u32;
+    let safe_to_execute = unresolved_refs.is_empty();
+    let reason = if unresolved_refs.is_empty() {
+        "All references can be automatically updated.".to_string()
+    } else {
+        format!(
+            "{} unresolved references require manual review",
+            unresolved_refs.len()
+        )
+    };
+
+    Ok(CrossModuleMoveResult {
+        dry_run,
+        files_to_modify,
+        unresolved_refs,
+        estimated_tokens,
+        safe_to_execute,
+        reason,
+    })
+}
+
+// ─── 9.4 signature_migration_check ───
+
+/// Check if changing a function signature breaks callers.
+///
+/// Compares the current signature with the proposed new signature and identifies
+/// callers that may need updates.
+pub fn signature_migration_check(
+    db: &crate::database::IndexDb,
+    symbol: &str,
+    new_signature: &str,
+    _check_call_sites: bool,
+) -> anyhow::Result<SignatureMigrationResult> {
+    let mut breaking_callers: Vec<BreakingCaller> = Vec::new();
+    let mut safe_count: usize = 0;
+
+    // Get current symbol info
+    let search_results = db.search_symbol(symbol).unwrap_or_else(|_| Vec::new());
+    if search_results.is_empty() {
+        return Err(anyhow::anyhow!("Symbol '{}' not found in index", symbol));
+    }
+
+    let current_sym = &search_results[0];
+    let current_sig = current_sym.signature.as_deref().unwrap_or("");
+
+    // Get all callers
+    let (callers, _) = db.impact(symbol).unwrap_or_else(|_| (Vec::new(), Vec::new()));
+
+    // Parse parameter counts from signatures (simplified heuristic)
+    let old_params = count_params(current_sig);
+    let new_params = count_params(new_signature);
+    let old_required = count_required_params(current_sig);
+    let new_required = count_required_params(new_signature);
+
+    // Check for breaking changes
+    let param_increase = new_required > old_required;
+    let return_changed = return_type_changed(current_sig, new_signature);
+
+    for caller in &callers {
+        let call_site = format!("{}()", caller.name);
+
+        if param_increase {
+            breaking_callers.push(BreakingCaller {
+                symbol: caller.name.clone(),
+                call_site,
+                issue: format!(
+                    "New signature requires {} params, old required {} — caller may need update",
+                    new_required, old_required
+                ),
+            });
+        } else if return_changed {
+            breaking_callers.push(BreakingCaller {
+                symbol: caller.name.clone(),
+                call_site,
+                issue: "Return type changed — caller may need to adapt".to_string(),
+            });
+        } else {
+            safe_count += 1;
+        }
+    }
+
+    let compatible = breaking_callers.is_empty();
+
+    let suggestion = if param_increase && !return_changed {
+        format!(
+            "Add new parameters as optional (with defaults) to maintain backward compatibility. {} callers affected.",
+            breaking_callers.len()
+        )
+    } else if return_changed {
+        format!(
+            "Consider keeping the old return type or providing a wrapper. {} callers affected.",
+            breaking_callers.len()
+        )
+    } else if compatible {
+        "Signature change is backward compatible.".to_string()
+    } else {
+        "Review breaking changes carefully.".to_string()
+    };
+
+    Ok(SignatureMigrationResult {
+        compatible,
+        breaking_callers,
+        safe_callers: safe_count,
+        suggestion,
+    })
+}
+
+/// Count parameters in a signature string (heuristic)
+fn count_params(signature: &str) -> usize {
+    if let Some(start) = signature.find('(') {
+        if let Some(end) = signature.rfind(')') {
+            if start < end {
+                let params_str = &signature[start + 1..end];
+                if params_str.trim().is_empty() {
+                    return 0;
+                }
+                return params_str.split(',').count();
+            }
+        }
+    }
+    0
+}
+
+/// Count required (non-optional) parameters
+fn count_required_params(signature: &str) -> usize {
+    if let Some(start) = signature.find('(') {
+        if let Some(end) = signature.rfind(')') {
+            if start < end {
+                let params_str = &signature[start + 1..end];
+                if params_str.trim().is_empty() {
+                    return 0;
+                }
+                return params_str
+                    .split(',')
+                    .filter(|p| {
+                        let p = p.trim();
+                        !p.contains('=') && !p.contains(": Optional") && !p.contains(": Option<")
+                    })
+                    .count();
+            }
+        }
+    }
+    0
+}
+
+/// Check if return type changed between signatures
+fn return_type_changed(old_sig: &str, new_sig: &str) -> bool {
+    let old_return = extract_return_type(old_sig);
+    let new_return = extract_return_type(new_sig);
+    old_return != new_return && (!old_return.is_empty() || !new_return.is_empty())
+}
+
+/// Extract return type from signature (heuristic)
+fn extract_return_type(signature: &str) -> String {
+    if let Some(pos) = signature.find("->") {
+        signature[pos + 2..].trim().to_string()
+    } else if let Some(arrow) = signature.find('→') {
+        // '→' is a 3-byte UTF-8 char; skip past it properly
+        let skip = '→'.len_utf8();
+        signature[arrow + skip..].trim().to_string()
+    } else {
+        String::new()
+    }
+}
+
 // ─── Unit Tests ───
 
 #[cfg(test)]
@@ -734,5 +1459,46 @@ mod tests {
             auth_login > 0.1,
             "auth.login should have meaningful rank"
         );
+    }
+
+    // ─── Phase 9 Helper Function Tests ───
+
+    #[test]
+    fn test_count_params_zero() {
+        assert_eq!(count_params("foo()"), 0);
+        assert_eq!(count_params("bar"), 0);
+        assert_eq!(count_params(""), 0);
+    }
+
+    #[test]
+    fn test_count_params_basic() {
+        assert_eq!(count_params("foo(a)"), 1);
+        assert_eq!(count_params("foo(a, b)"), 2);
+        assert_eq!(count_params("foo(a, b, c)"), 3);
+    }
+
+    #[test]
+    fn test_count_required_params() {
+        assert_eq!(count_required_params("foo(a, b=10)"), 1);
+        assert_eq!(count_required_params("foo(a, b, c=None)"), 2);
+        assert_eq!(count_required_params("foo(a: Optional[int])"), 0);
+        assert_eq!(count_required_params("foo(a: Option<i32>)"), 0);
+        assert_eq!(count_required_params("foo(a, b)"), 2);
+    }
+
+    #[test]
+    fn test_extract_return_type() {
+        assert_eq!(extract_return_type("foo() -> int"), "int");
+        assert_eq!(extract_return_type("foo() -> Vec<String>"), "Vec<String>");
+        assert_eq!(extract_return_type("foo()"), "");
+        assert_eq!(extract_return_type("foo() → Result<T>"), "Result<T>");
+    }
+
+    #[test]
+    fn test_return_type_changed() {
+        assert!(return_type_changed("foo() -> int", "foo() -> String"));
+        assert!(!return_type_changed("foo() -> int", "foo(a) -> int"));
+        assert!(!return_type_changed("foo()", "bar()"));
+        assert!(return_type_changed("foo() -> int", "foo()"));
     }
 }

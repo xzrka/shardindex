@@ -37,6 +37,9 @@ pub enum CompressionLevel {
     TokenBudgeted(usize),
 }
 
+/// Alias for `CompressionLevel` to match masterplan §8.1 naming convention.
+pub type CompressionMode = CompressionLevel;
+
 impl std::fmt::Display for CompressionLevel {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -104,6 +107,9 @@ pub struct CompressedSymbol {
     /// Compression level actually used.
     pub compression_used: String,
 }
+
+/// Alias for `CompressedSymbol` to match masterplan §8.1 naming convention.
+pub type SymbolSlice = CompressedSymbol;
 
 // ─── Public API ───
 
@@ -1178,5 +1184,34 @@ fn real() -> i32 {
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(err.contains("Invalid compression level"));
+    }
+
+    // ── Phase 8: Type alias tests ──
+
+    #[test]
+    fn test_compression_mode_alias() {
+        // CompressionMode is an alias for CompressionLevel
+        let mode: CompressionMode = CompressionMode::SignatureOnly;
+        assert_eq!(mode, CompressionLevel::SignatureOnly);
+
+        let mode: CompressionMode = CompressionMode::CriticalBranches;
+        assert_eq!(mode, CompressionLevel::CriticalBranches);
+
+        let mode: CompressionMode = CompressionMode::FullBody;
+        assert_eq!(mode, CompressionLevel::FullBody);
+
+        let mode: CompressionMode = CompressionMode::TokenBudgeted(100);
+        assert_eq!(mode, CompressionLevel::TokenBudgeted(100));
+    }
+
+    #[test]
+    fn test_symbol_slice_alias() {
+        // SymbolSlice is an alias for CompressedSymbol
+        let slice: SymbolSlice = compress_symbol("fn hello() {}", 1, 1, CompressionLevel::SignatureOnly);
+        assert!(!slice.signature.is_empty());
+        assert_eq!(slice.compression_used, "signature_only");
+
+        // Fields match CompressedSymbol
+        let _cs: CompressedSymbol = slice;
     }
 }

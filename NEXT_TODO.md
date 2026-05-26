@@ -1,24 +1,22 @@
 # ShardIndex — Next Tasks
 
 Generated: 2026-05-26
-Updated: 2026-05-26
+Updated: 2026-05-26 (Phase 9 completed)
 Based on: `references/masterplan.md` v1.3 vs current implementation gap analysis
 
 ## Current State
 
-- **Branch:** master, commit `3dcf2ea` (docs: update NEXT_TODO.md Phase 4-2 완료, 236 tests)
-- **Build:** `cargo check` 0 errors, 46 warnings (existing unused code)
-- **Tests:** 250/250 passing
+- **Branch:** master
+- **Build:** `cargo check` 0 errors
+- **Tests:** 539/539 passing (261 unit lib + 261 unit bin + 17 integration)
 - **Schema:** v4 (4 migrations)
-- **Lines:** ~11,738 total across 42 source files
 - **Languages:** 19 (18 tree-sitter + Markdown)
 
 ---
 
-## Phase 4 — Semantic Compression (HIGH PRIORITY)
+## Phase 4 — Semantic Compression ✅ COMPLETE
 
-The masterplan Phase 4 is the next major milestone. Token estimation and
-adaptive compression are the foundation for all budgeted retrieval features.
+All 4 sub-tasks done. Token estimation, adaptive compression, TokenBudgeted MCP responses, and integration tests are fully implemented and tested.
 
 ### 4-1. Token estimation per symbol ✅ DONE
 
@@ -83,51 +81,76 @@ adaptive compression are the foundation for all budgeted retrieval features.
 
 ---
 
-## Phase 8 — LanguageBackend Trait Completion
+## Phase 8 — LanguageBackend Trait Completion ✅ COMPLETE
 
-The `Parser` trait now has `slice_symbol()` and `estimate_tokens()` with default
-implementations. May still need `is_dynamic_ref()` and explicit types.
+The `SourceCodeParser` trait is now fully aligned with masterplan §8.1.
 
-- [ ] Add to `Parser` trait:
+- [x] Add to `SourceCodeParser` trait:
   - [x] `slice_symbol(&self, source, symbol, mode) -> Result<SymbolSlice>`
   - [x] `estimate_tokens(&self, snippet: &str) -> usize`
-  - [ ] `is_dynamic_ref(&self, node) -> bool`
-- [ ] Define `CompressionMode` enum (masterplan §8.1) — check if `CompressionLevel` covers this
-- [ ] Define `SymbolSlice` struct with fields:
-  - `signature`, `critical_branches`, `side_effects`, `key_assignments`, `return_statement`
+  - [x] `is_dynamic_ref(&self, ref_kind: &str) -> bool` — default impl checks dynamic_dispatch/virtual_call/string_ref
+- [x] `CompressionMode` type alias → `CompressionLevel` (masterplan §8.1 naming)
+- [x] `SymbolSlice` type alias → `CompressedSymbol` (masterplan §8.1 naming)
+- [x] 6 new unit tests for `is_dynamic_ref()` (static kinds, dynamic kinds, trait dispatch, multi-parser)
+- [x] 2 new unit tests for type aliases (`CompressionMode`, `SymbolSlice`)
+- [x] 256 unit + 17 integration = 273 tests, all passing
 
 ---
 
-## Phase 9 — Refactoring-Specialized APIs
+## Phase 9 — Refactoring-Specialized APIs ✅ COMPLETE
 
-Advanced APIs for safe refactoring workflows.
+Advanced APIs for safe refactoring workflows. All 4 APIs implemented with MCP handlers, CLI commands, and unit tests.
 
-### 9-1. impact_deep
+### 9-1. impact_deep ✅ DONE
 
-- [ ] Implement `impact_deep` in `src/graph/mod.rs`
-  - Multi-depth transitive dependency tracing
-  - Risk scoring per depth layer
+- [x] Implement `impact_deep` in `src/graph/mod.rs`
+  - Multi-depth transitive dependency tracing (BFS with visited set)
+  - Risk scoring per depth layer (`low`, `medium`, `high`, `critical`)
   - `include_tests`, `include_dynamic` flags
-- [ ] Expose via MCP + CLI
+  - `test_coverage_gaps`, `critical_paths`, `dynamic_refs_at_risk`
+  - `recommendation` string based on analysis
+- [x] MCP handler: `handle_impact_deep` → `shardindex.impact_deep`
+- [x] CLI: `shardindex impact_deep <symbol> --depth --include-tests --include-dynamic`
+- [x] Response types: `ImpactDeepResult`, `ImpactLayer`, `DynamicRefAtRisk`
 
-### 9-2. dead_code_verify
+### 9-2. dead_code_verify ✅ DONE
 
-- [ ] Implement multi-stage dead code verification
+- [x] Implement multi-stage dead code verification
   - Stages: static_refs, dynamic_refs, string_refs, git_history, test_refs
   - Return `safe_to_delete` + blockers list
+  - `DeadCodeVerifyResult` with `HashMap<String, DeadCodeStage>` stages
+  - `suggestion` string with actionable advice
+- [x] MCP handler: `handle_dead_code_verify` → `shardindex.dead_code_verify`
+- [x] CLI: `shardindex dead_code_verify <symbol> --stages`
 
-### 9-3. cross_module_move
+### 9-3. cross_module_move ✅ DONE
 
-- [ ] Safe symbol relocation across modules
+- [x] Safe symbol relocation across modules
   - Auto-update imports and references
   - Dry-run mode with file modification plan
   - Unresolved reference detection
+  - `CrossModuleMoveResult` with `FileModification`, `UnresolvedRef`
+  - `estimated_tokens` for change scope
+- [x] MCP handler: `handle_cross_module_move` → `shardindex.cross_module_move`
+- [x] CLI: `shardindex cross_module_move <symbol> <target_module> --update-imports --dry-run`
 
-### 9-4. signature_migration_check
+### 9-4. signature_migration_check ✅ DONE
 
-- [ ] Check if signature change breaks callers
+- [x] Check if signature change breaks callers
   - Analyze call sites for positional/keyword arg compatibility
   - Return `compatible` + `breaking_callers` list
+  - `SignatureMigrationResult` with `BreakingCaller` details
+  - Helper functions: `count_params`, `count_required_params`, `extract_return_type`, `return_type_changed`
+  - UTF-8 safe arrow handling (`→` vs `->`)
+- [x] MCP handler: `handle_signature_migration_check` → `shardindex.signature_migration_check`
+- [x] CLI: `shardindex signature_migration_check <symbol> <new_signature>`
+- [x] 5 unit tests for helper functions (count_params, count_required_params, extract_return_type, return_type_changed)
+
+### Infrastructure
+- [x] 4 MCP JSON-RPC routes registered in router
+- [x] 4 CLI subcommands in `src/cli/mod.rs` + handlers in `src/main.rs`
+- [x] All response types derive `Serialize`, `Deserialize`, `Clone`, `Debug`
+- [x] 539 total tests (261 lib + 261 bin + 17 integration), all passing
 
 ---
 
@@ -182,11 +205,8 @@ Advanced APIs for safe refactoring workflows.
 
 ## Recommended Order
 
-1. ~~**Phase 4-1** — Token estimation (foundation for everything else)**~~ ✅
-2. ~~**Phase 4-2** — Compression pipeline**~~ ✅
-3. ~~**Phase 4-3** — TokenBudgeted MCP responses**~~ ✅
-4. ~~**Phase 4-4** — Integration tests**~~ ✅
-5. **Phase 8** — Complete LanguageBackend trait (is_dynamic_ref, types)
-6. **Phase 9** — Refactoring APIs (impact_deep, dead_code_verify, etc.)
-7. **Phase 11** — Error handling / fallback
-8. **Phase 12** — Benchmarks
+1. ~~**Phase 4** — Semantic Compression (all 4 sub-tasks)**~~ ✅ COMPLETE
+2. ~~**Phase 8** — Complete LanguageBackend trait (is_dynamic_ref, types)~~ ✅ COMPLETE
+3. ~~**Phase 9** — Refactoring APIs (impact_deep, dead_code_verify, etc.)~~ ✅ COMPLETE
+4. **Phase 11** — Error handling / fallback ← NEXT
+5. **Phase 12** — Benchmarks

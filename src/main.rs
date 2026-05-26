@@ -91,6 +91,34 @@ async fn main() -> anyhow::Result<()> {
             compression: compression_str,
             format,
         } => cmd_read(&db, &root, &symbol, &compression_str, format)?,
+        Commands::ImpactDeep {
+            symbol,
+            db,
+            depth,
+            include_tests,
+            include_dynamic,
+            format,
+        } => cmd_impact_deep(&db, &symbol, depth, include_tests, include_dynamic, format)?,
+        Commands::DeadCodeVerify {
+            symbol,
+            db,
+            stages,
+            format,
+        } => cmd_dead_code_verify(&db, &symbol, stages.as_ref(), format)?,
+        Commands::CrossModuleMove {
+            symbol,
+            target_module,
+            db,
+            update_imports,
+            dry_run,
+            format,
+        } => cmd_cross_module_move(&db, &symbol, &target_module, update_imports, dry_run, format)?,
+        Commands::SignatureMigrationCheck {
+            symbol,
+            new_signature,
+            db,
+            format,
+        } => cmd_signature_migration_check(&db, &symbol, &new_signature, format)?,
     }
 
     Ok(())
@@ -898,5 +926,158 @@ fn cmd_read(
         println!("{}", output);
     }
 
+    Ok(())
+}
+
+fn cmd_impact_deep(
+    db_path: &str,
+    symbol: &str,
+    depth: u8,
+    include_tests: bool,
+    include_dynamic: bool,
+    output_format: OutputFormat,
+) -> anyhow::Result<()> {
+    let db = IndexDb::open(db_path)?;
+    let result = graph::impact_deep(&db, symbol, depth, include_tests, include_dynamic, true, None)?;
+
+    if output_format == OutputFormat::Text {
+        println!("🔍 Deep Impact Analysis: '{}'", symbol);
+        println!("   Depth: {} | Layers: {}", depth, result.layers.len());
+        for layer in &result.layers {
+            println!(
+                "   Layer {} (confidence: {:.2}, risk: {}): {} symbols",
+                layer.depth, layer.confidence, layer.risk, layer.symbols.len()
+            );
+            for sym in &layer.symbols {
+                println!("     - {}", sym);
+            }
+        }
+        if !result.critical_paths.is_empty() {
+            println!("   Critical paths:");
+            for path in &result.critical_paths {
+                println!("     {}", path);
+            }
+        }
+        if !result.test_coverage_gaps.is_empty() {
+            println!("   Test coverage gaps:");
+            for gap in &result.test_coverage_gaps {
+                println!("     ⚠️  {}", gap);
+            }
+        }
+        if !result.dynamic_refs_at_risk.is_empty() {
+            println!("   Dynamic refs at risk:");
+            for ref_risk in &result.dynamic_refs_at_risk {
+                println!("     ⚠️  {} (confidence: {:.2}, file: {})", ref_risk.expr, ref_risk.confidence, ref_risk.file);
+            }
+        }
+        println!("   Recommendation: {}", result.recommendation);
+    } else {
+        let json = serde_json::to_value(&result)?;
+        print_formatted(&json, output_format);
+    }
+    Ok(())
+}
+
+fn cmd_dead_code_verify(
+    db_path: &str,
+    symbol: &str,
+    stages: Option<&Vec<String>>,
+    output_format: OutputFormat,
+) -> anyhow::Result<()> {
+    let db = IndexDb::open(db_path)?;
+    let stage_list: Vec<&str> = stages
+        .map(|s| s.iter().map(|x| x.as_str()).collect())
+        .unwrap_or_default();
+
+    let result = graph::dead_code_verify(&db, symbol, &stage_list, 0.8)?;
+
+    if output_format == OutputFormat::Text {
+        println!("🗑️  Dead Code Verification: '{}'", symbol);
+        println!("   Safe to delete: {}", if result.safe_to_delete { "✅ YES" } else { "❌ NO" });
+        for (stage_name, stage) in &result.stages {
+            println!("   Stage '{}': {}", stage_name, stage.status);
+            if let Some(callers) = &stage.callers {
+                if !callers.is_empty() {
+                    println!("     Callers: {:?}", callers);
+                }
+            }
+            if let Some(matches) = &stage.matches {
+                if !matches.is_empty() {
+                    println!("     Matches: {:?}", matches);
+                }
+            }
+        }
+        if !result.blockers.is_empty() {
+            println!("   Blockers:");
+            for blocker in &result.blockers {
+                println!("     ⚠️  {}", blocker);
+            }
+        }
+        println!("   Suggestion: {}", result.suggestion);
+    } else {
+        let json = serde_json::to_value(&result)?;
+        print_formatted(&json, output_format);
+    }
+    Ok(())
+}
+
+fn cmd_cross_module_move(
+    db_path: &str,
+    symbol: &str,
+    target_module: &str,
+    update_imports: bool,
+    dry_run: bool,
+    output_format: OutputFormat,
+) -> anyhow::Result<()> {
+    let db = IndexDb::open(db_path)?;
+    let result = graph::cross_module_move(&db, symbol, target_module, update_imports, false, dry_run)?;
+
+    if output_format == OutputFormat::Text {
+        println!("📦 Cross-Module Move: '{}' → '{}'", symbol, target_module);
+        println!("   Dry run: {} | Safe: {}", dry_run, if result.safe_to_execute { "✅ YES" } else { "⚠️ NO" });
+        println!("   Files to modify: {}", result.files_to_modify.len());
+        for fm in &result.files_to_modify {
+            println!("     [{}] {} (symbol: {:?}, from: {:?}, to: {:?})", fm.action, fm.path, fm.symbol, fm.from, fm.to);
+        }
+        if !result.unresolved_refs.is_empty() {
+            println!("   Unresolved refs: {}", result.unresolved_refs.len());
+            for uref in &result.unresolved_refs {
+                println!("     ⚠️  {} ({}) — {}", uref.file, uref.ref_type, uref.value);
+            }
+        }
+        println!("   Estimated tokens: {}", result.estimated_tokens);
+        println!("   Reason: {}", result.reason);
+    } else {
+        let json = serde_json::to_value(&result)?;
+        print_formatted(&json, output_format);
+    }
+    Ok(())
+}
+
+fn cmd_signature_migration_check(
+    db_path: &str,
+    symbol: &str,
+    new_signature: &str,
+    output_format: OutputFormat,
+) -> anyhow::Result<()> {
+    let db = IndexDb::open(db_path)?;
+    let result = graph::signature_migration_check(&db, symbol, new_signature, true)?;
+
+    if output_format == OutputFormat::Text {
+        println!("🔧 Signature Migration Check: '{}'", symbol);
+        println!("   New signature: {}", new_signature);
+        println!("   Compatible: {}", if result.compatible { "✅ YES" } else { "❌ NO" });
+        println!("   Safe callers: {}", result.safe_callers);
+        if !result.breaking_callers.is_empty() {
+            println!("   Breaking callers: {}", result.breaking_callers.len());
+            for bc in &result.breaking_callers {
+                println!("     ⚠️  {} ({}) — {}", bc.symbol, bc.call_site, bc.issue);
+            }
+        }
+        println!("   Suggestion: {}", result.suggestion);
+    } else {
+        let json = serde_json::to_value(&result)?;
+        print_formatted(&json, output_format);
+    }
     Ok(())
 }

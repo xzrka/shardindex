@@ -950,3 +950,51 @@ fn test_all_extensions() {
     assert!(exts.iter().any(|(ext, _)| *ext == "zig"));
     assert!(exts.iter().any(|(ext, _)| *ext == "exs"));
 }
+
+// ---- is_dynamic_ref tests (Phase 8) ----
+
+#[test]
+fn test_is_dynamic_ref_default_static() {
+    let parser = PythonParser::new().unwrap();
+    // Static reference kinds should return false
+    assert!(!parser.is_dynamic_ref("call"));
+    assert!(!parser.is_dynamic_ref("import"));
+    assert!(!parser.is_dynamic_ref("inherit"));
+    assert!(!parser.is_dynamic_ref("export"));
+    assert!(!parser.is_dynamic_ref("use"));
+    assert!(!parser.is_dynamic_ref("require"));
+    assert!(!parser.is_dynamic_ref("include"));
+}
+
+#[test]
+fn test_is_dynamic_ref_default_dynamic() {
+    let parser = PythonParser::new().unwrap();
+    // Dynamic reference kinds should return true
+    assert!(parser.is_dynamic_ref("dynamic_dispatch"));
+    assert!(parser.is_dynamic_ref("virtual_call"));
+    assert!(parser.is_dynamic_ref("string_ref"));
+}
+
+#[test]
+fn test_is_dynamic_ref_trait_dispatch() {
+    // Test via trait object — default impl should work through dyn dispatch
+    let parser: Box<dyn SourceCodeParser> = Box::new(PythonParser::new().unwrap());
+    assert!(parser.is_dynamic_ref("dynamic_dispatch"));
+    assert!(!parser.is_dynamic_ref("call"));
+}
+
+#[test]
+fn test_is_dynamic_ref_multiple_parsers() {
+    // All parsers inherit the default behavior
+    let js = JavaScriptParser::new().unwrap();
+    assert!(js.is_dynamic_ref("virtual_call"));
+    assert!(!js.is_dynamic_ref("call"));
+
+    let rust_p = RustParser::new().unwrap();
+    assert!(rust_p.is_dynamic_ref("string_ref"));
+    assert!(!rust_p.is_dynamic_ref("use"));
+
+    let ts = TypeScriptParser::new().unwrap();
+    assert!(ts.is_dynamic_ref("dynamic_dispatch"));
+    assert!(!ts.is_dynamic_ref("import"));
+}
