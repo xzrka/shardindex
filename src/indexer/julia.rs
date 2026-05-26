@@ -55,7 +55,7 @@ impl JuliaParser {
             "import" | "using" => {
                 Self::extract_import(node, source, result);
             }
-            "call" => {
+            "call_expression" => {
                 Self::extract_call(node, source, result);
             }
             _ => {}
@@ -231,7 +231,8 @@ impl JuliaParser {
     }
 
     fn extract_call(node: &Node, source: &[u8], result: &mut ParseResult) {
-        let func = node.child_by_field_name("function");
+        // Julia call_expression: first named child is the function name (identifier or dotted_name)
+        let func = node.named_child(0);
         if let Some(name) = func.and_then(|n| n.utf8_text(source).ok()) {
             let callee = name.to_string();
             if !callee.is_empty() {
