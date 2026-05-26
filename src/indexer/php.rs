@@ -55,6 +55,9 @@ impl PhpParser {
             "property_element" => {
                 Self::extract_property(node, source, result, parent.as_deref());
             }
+            "function_call_expression" | "member_call_expression" | "scoped_call_expression" => {
+                Self::extract_call(node, source, result);
+            }
             _ => {}
         }
 
@@ -211,6 +214,27 @@ impl PhpParser {
                 docstring: None,
                 parent: parent.map(|s| s.to_string()),
             });
+        }
+    }
+
+    fn extract_call(node: &Node, source: &[u8], result: &mut ParseResult) {
+        // PHP: function_call_expression has "function" field
+        //       member_call_expression has "name" field
+        //       scoped_call_expression has "name" field
+        let callee = node
+            .child_by_field_name("function")
+            .or_else(|| node.child_by_field_name("name"))
+            .and_then(|n| n.utf8_text(source).ok())
+            .map(|s| s.to_string());
+        if let Some(callee) = callee {
+            if !callee.is_empty() {
+                result.references.push(ParsedReference {
+                    caller_symbol: None,
+                    callee_symbol: callee,
+                    ref_kind: "call".to_string(),
+                    line: node.start_position().row + 1,
+                });
+            }
         }
     }
 }
