@@ -13,6 +13,7 @@
 //! shardindex rank                      # Compute symbol ranking
 mod agent_cache;
 mod cli;
+mod compression;
 mod config;
 mod daemon;
 mod database;
@@ -82,6 +83,13 @@ async fn main() -> anyhow::Result<()> {
         Commands::McpServer { db, cache_ttl } => {
             mcp::stdio::run(&db, cache_ttl)?;
         }
+        Commands::Read {
+            symbol,
+            db,
+            root,
+            compression: compression_str,
+            format,
+        } => cmd_read(&db, &root, &symbol, &compression_str, format)?,
     }
 
     Ok(())
@@ -761,7 +769,7 @@ fn cmd_verify(
         }
     }
 
-    if unresolved.is_empty() {
+     if unresolved.is_empty() {
         println!("\n🎉 All symbols have overrides!");
     } else {
         println!(
@@ -769,6 +777,124 @@ fn cmd_verify(
             unresolved.len(),
             unresolved.iter().map(|s| s.as_str()).collect::<Vec<_>>().join(", ")
         );
+    }
+
+    Ok(())
+}
+
+/// Read a symbol with semantic compression
+///
+/// Looks up the symbol in the index, reads the source file, and compresses
+/// the symbol body according to the specified compression level.
+fn cmd_read(
+    db_path: &str,
+    root: &str,
+    symbol_name: &str,
+    compression_str: &str,
+    output_format: OutputFormat,
+) -> anyhow::Result<()> {
+    use anyhow::Context;
+    use compression::{compress_symbol, CompressionLevel};
+    use database::IndexDb;
+    use std::str::FromStr;
+
+    let db = IndexDb::open(db_path)?;
+    let root_path = std::fs::canonicalize(root)?;
+
+    // Parse compression level
+    let level = CompressionLevel::from_str(compression_str).map_err(|e| anyhow::anyhow!(e))?;
+
+    // Look up symbol — try qualified name first, then short name
+    let symbol = db
+        .search_symbol(symbol_name)
+        .with_context(|| format!("Symbol '{}' not found in index", symbol_name))?;
+
+    if symbol.is_empty() {
+        anyhow::bail!("Symbol '{}' not found in index", symbol_name);
+    }
+
+    // Use the first match (or exact match if available)
+    let sym = symbol
+        .iter()
+        .find(|s| s.qualified_name == symbol_name || s.name == symbol_name)
+        .unwrap_or(&symbol[0]);
+
+    // Read source file
+    let source_path = root_path.join(&sym.file_path);
+    let source = std::fs::read_to_string(&source_path)
+        .with_context(|| format!("Failed to read source file: {}", source_path.display()))?;
+
+    // Compress symbol
+    let compressed = compress_symbol(&source, sym.start_line, sym.end_line, level);
+
+    // Output
+    if output_format == OutputFormat::Text {
+        println!("📄 {}", sym.qualified_name);
+        println!("   File:      {}", sym.file_path);
+        println!("   Lines:     {}–{}", sym.start_line, sym.end_line);
+        println!("   Kind:      {}", sym.kind);
+        println!("   Signature: {}", sym.signature.as_deref().unwrap_or("<none>"));
+        if let Some(doc) = &sym.docstring {
+            println!("   Docstring: {}", doc);
+        }
+        println!("   Tokens:    {} (original: {})", compressed.estimated_tokens, sym.token_count);
+        println!("   Compression: {}", compressed.compression_used);
+        println!();
+        println!("── {} ──", compressed.compression_used);
+        println!("{}", compressed.signature);
+
+        if let Some(branches) = &compressed.critical_branches {
+            println!();
+            println!("  Control flow:");
+            for branch in branches {
+                println!("    {}", branch);
+            }
+        }
+
+        if let Some(effects) = &compressed.side_effects {
+            println!();
+            println!("  Side effects:");
+            for effect in effects {
+                println!("    {}", effect);
+            }
+        }
+
+        if let Some(assignments) = &compressed.key_assignments {
+            println!();
+            println!("  Key assignments:");
+            for assignment in assignments {
+                println!("    {}", assignment);
+            }
+        }
+
+        if let Some(ret) = &compressed.return_statement {
+            println!();
+            println!("  Returns: {}", ret);
+        }
+
+        if let Some(body) = &compressed.full_body {
+            println!();
+            for line in body.lines() {
+                println!("  {}", line);
+            }
+        }
+    } else {
+        let json = serde_json::json!({
+            "symbol": sym.qualified_name,
+            "file": sym.file_path,
+            "lines": [sym.start_line, sym.end_line],
+            "kind": sym.kind,
+            "signature": sym.signature,
+            "docstring": sym.docstring,
+            "token_count": sym.token_count,
+            "compressed": compressed
+        });
+        let output = match output_format {
+            OutputFormat::Json => serde_json::to_string_pretty(&json)?,
+            OutputFormat::Toon => format::toon::to_toon(&json, false, true),
+            OutputFormat::Text => unreachable!(),
+        };
+        println!("{}", output);
     }
 
     Ok(())

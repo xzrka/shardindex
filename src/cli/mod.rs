@@ -206,6 +206,28 @@ pub enum Commands {
         #[arg(long, default_value_t = 300)]
         cache_ttl: u64,
     },
+
+    /// Read a symbol with semantic compression
+    Read {
+        /// Symbol name (short name or qualified name)
+        symbol: String,
+
+        /// Database path
+        #[arg(long, default_value = ".shardindex.db")]
+        db: String,
+
+        /// Project root (for reading source files)
+        #[arg(long, default_value = ".")]
+        root: String,
+
+        /// Compression level: signature_only, critical_branches, full_body, or token budget (number)
+        #[arg(long, default_value = "critical_branches")]
+        compression: String,
+
+        /// Output format (default: text)
+        #[arg(long, value_enum, default_value_t = OutputFormat::default())]
+        format: OutputFormat,
+    },
 }
 
 #[derive(Subcommand, Debug)]

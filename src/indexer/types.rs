@@ -108,6 +108,11 @@ pub struct ParseResult {
 // ---------------------------------------------------------------------------
 
 /// Language-agnostic source code parser
+///
+/// Aligns with masterplan §8 (Parser Abstraction Layer / LanguageBackend).
+/// The `parse()` method corresponds to `parse_symbols()` + `extract_refs()`.
+/// The `slice_symbol()` and `estimate_tokens()` methods correspond to the
+/// masterplan's `LanguageBackend::slice_symbol()` and `estimate_tokens()`.
 pub trait SourceCodeParser {
     /// Language identifier (e.g. "python", "javascript")
     fn language(&self) -> &str;
@@ -117,4 +122,29 @@ pub trait SourceCodeParser {
 
     /// Parse source code and extract symbols, references, imports
     fn parse(&mut self, source: &str) -> Result<ParseResult, anyhow::Error>;
+
+    /// Slice a specific symbol for semantic compression.
+    ///
+    /// Default implementation delegates to `crate::compression::compress_symbol()`.
+    /// Language-specific parsers can override for AST-aware slicing.
+    ///
+    /// Aligns with masterplan §8.1 `LanguageBackend::slice_symbol()`.
+    fn slice_symbol(
+        &self,
+        source: &str,
+        symbol: &ParsedSymbol,
+        level: crate::compression::CompressionLevel,
+    ) -> crate::compression::CompressedSymbol {
+        crate::compression::compress_symbol(source, symbol.start_line, symbol.end_line, level)
+    }
+
+    /// Estimate token count for a code snippet.
+    ///
+    /// Default implementation delegates to `crate::token_estimation::estimate_token_count()`.
+    /// Language-specific parsers can override for language-aware estimation.
+    ///
+    /// Aligns with masterplan §8.1 `LanguageBackend::estimate_tokens()`.
+    fn estimate_tokens(&self, snippet: &str) -> usize {
+        crate::token_estimation::estimate_token_count(snippet)
+    }
 }

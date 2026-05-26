@@ -48,6 +48,35 @@ impl std::fmt::Display for CompressionLevel {
     }
 }
 
+impl std::str::FromStr for CompressionLevel {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_lowercase().as_str() {
+            "signature_only" | "signatureonly" | "sig" | "s" => Ok(CompressionLevel::SignatureOnly),
+            "critical_branches" | "criticalbranches" | "crit" | "c" => Ok(CompressionLevel::CriticalBranches),
+            "full_body" | "fullbody" | "full" | "f" => Ok(CompressionLevel::FullBody),
+            other => {
+                // Try parsing "token_budgeted(N)" or "budget(N)" or just a number
+                let inner = other
+                    .strip_prefix("token_budgeted(")
+                    .or_else(|| other.strip_prefix("budget("))
+                    .map(|s| s.strip_suffix(')').unwrap_or(s))
+                    .unwrap_or(other);
+
+                if let Ok(n) = inner.parse::<usize>() {
+                    return Ok(CompressionLevel::TokenBudgeted(n));
+                }
+
+                Err(format!(
+                    "Invalid compression level '{}'. Use: signature_only, critical_branches, full_body, token_budgeted(N), or a number for token budget",
+                    s
+                ))
+            }
+        }
+    }
+}
+
 // ─── Compressed Symbol ───
 
 /// Result of compressing a symbol body.
@@ -1107,5 +1136,47 @@ fn real() -> i32 {
         assert!(compressed.side_effects.is_some());
         assert!(compressed.key_assignments.is_some());
         assert!(compressed.return_statement.is_some());
+    }
+
+    // ── FromStr for CompressionLevel ──
+
+    #[test]
+    fn test_fromstr_signature_only_aliases() {
+        assert_eq!("signature_only".parse::<CompressionLevel>().unwrap(), CompressionLevel::SignatureOnly);
+        assert_eq!("signatureonly".parse::<CompressionLevel>().unwrap(), CompressionLevel::SignatureOnly);
+        assert_eq!("sig".parse::<CompressionLevel>().unwrap(), CompressionLevel::SignatureOnly);
+        assert_eq!("s".parse::<CompressionLevel>().unwrap(), CompressionLevel::SignatureOnly);
+        assert_eq!("SIG".parse::<CompressionLevel>().unwrap(), CompressionLevel::SignatureOnly);
+    }
+
+    #[test]
+    fn test_fromstr_critical_branches_aliases() {
+        assert_eq!("critical_branches".parse::<CompressionLevel>().unwrap(), CompressionLevel::CriticalBranches);
+        assert_eq!("criticalbranches".parse::<CompressionLevel>().unwrap(), CompressionLevel::CriticalBranches);
+        assert_eq!("crit".parse::<CompressionLevel>().unwrap(), CompressionLevel::CriticalBranches);
+        assert_eq!("c".parse::<CompressionLevel>().unwrap(), CompressionLevel::CriticalBranches);
+    }
+
+    #[test]
+    fn test_fromstr_full_body_aliases() {
+        assert_eq!("full_body".parse::<CompressionLevel>().unwrap(), CompressionLevel::FullBody);
+        assert_eq!("fullbody".parse::<CompressionLevel>().unwrap(), CompressionLevel::FullBody);
+        assert_eq!("full".parse::<CompressionLevel>().unwrap(), CompressionLevel::FullBody);
+        assert_eq!("f".parse::<CompressionLevel>().unwrap(), CompressionLevel::FullBody);
+    }
+
+    #[test]
+    fn test_fromstr_token_budgeted() {
+        assert_eq!("token_budgeted(100)".parse::<CompressionLevel>().unwrap(), CompressionLevel::TokenBudgeted(100));
+        assert_eq!("budget(500)".parse::<CompressionLevel>().unwrap(), CompressionLevel::TokenBudgeted(500));
+        assert_eq!("200".parse::<CompressionLevel>().unwrap(), CompressionLevel::TokenBudgeted(200));
+    }
+
+    #[test]
+    fn test_fromstr_invalid() {
+        let result = "invalid_level".parse::<CompressionLevel>();
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.contains("Invalid compression level"));
     }
 }
