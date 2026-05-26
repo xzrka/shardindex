@@ -46,6 +46,9 @@ impl DartParser {
             "class_declaration" => {
                 Self::extract_class(node, source, result, parent.as_deref());
             }
+            "method_declaration" => {
+                Self::extract_method(node, source, result, parent.as_deref());
+            }
             "method_invocation" => {
                 Self::extract_call(node, source, result);
             }
@@ -166,6 +169,40 @@ impl DartParser {
             start_col: node.start_position().column,
             end_col: node.end_position().column,
             signature: Some(format!("mixin {{}}")),
+            docstring: None,
+            parent: parent.map(|s| s.to_string()),
+        });
+    }
+
+    fn extract_method(node: &Node, source: &[u8], result: &mut ParseResult, parent: Option<&str>) {
+        // Dart method_declaration:
+        //   signature -> method_signature -> function_signature -> name (identifier)
+        //   signature -> method_signature -> function_signature -> parameters
+        let signature = node.child_by_field_name("signature");
+        // method_signature contains function_signature as first child
+        let function_sig = signature.and_then(|sig| sig.child(0));
+        let name = function_sig
+            .and_then(|fsig| fsig.child_by_field_name("name"))
+            .and_then(|n| n.utf8_text(source).ok())
+            .map(|s| s.to_string());
+        let Some(name) = name else {
+            return;
+        };
+
+        let params = function_sig
+            .and_then(|fsig| fsig.child_by_field_name("parameters"))
+            .and_then(|n| n.utf8_text(source).ok())
+            .map(|s| s.to_string())
+            .unwrap_or_else(|| "()".to_string());
+
+        result.symbols.push(ParsedSymbol {
+            name: name.clone(),
+            kind: SymbolKind::Function,
+            start_line: node.start_position().row + 1,
+            end_line: node.end_position().row + 1,
+            start_col: node.start_position().column,
+            end_col: node.end_position().column,
+            signature: Some(format!("{}{}", name, params)),
             docstring: None,
             parent: parent.map(|s| s.to_string()),
         });
