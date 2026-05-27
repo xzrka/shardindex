@@ -411,8 +411,9 @@ impl ProjectIndexer {
             );
         }
 
-        // Store hash
+        // Store hash + checksum
         self.db.upsert_file(&relative, &hash, size, &modified)?;
+        self.db.upsert_checksum(&relative, &hash, size)?;
 
         // Remove old symbols/refs for this file before re-indexing
         self.db.remove_file_symbols(&relative)?;
