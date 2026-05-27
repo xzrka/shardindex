@@ -857,8 +857,15 @@ fn cmd_read(
         .find(|s| s.qualified_name == symbol_name || s.name == symbol_name)
         .unwrap_or(&symbol[0]);
 
-    // Read source file
+    // Filter: only process files within the --root scope
     let source_path = root_path.join(&sym.file_path);
+    let source_path = match source_path.canonicalize() {
+        Ok(p) => p,
+        Err(e) => anyhow::bail!("File not readable: {} ({})", sym.file_path, e),
+    };
+    if !source_path.starts_with(&root_path) {
+        anyhow::bail!("File {} is outside --root scope", sym.file_path);
+    }
     let source = std::fs::read_to_string(&source_path)
         .with_context(|| format!("Failed to read source file: {}", source_path.display()))?;
 
