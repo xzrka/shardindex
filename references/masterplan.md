@@ -1635,7 +1635,7 @@ fn bench_search_semantic(b: &mut Bencher) {
 |---|---|---|---|---|---|
 | 1 | Python | tree-sitter-python | `src/indexer/python.rs` | 4 | Done |
 | 2 | JavaScript | tree-sitter-javascript | `src/indexer/javascript.rs` | 3 | Done |
-| 3 | TypeScript | tree-sitter-typescript | `src/indexer/typecript.rs` | 3 | Done |
+| 3 | TypeScript | tree-sitter-typescript | `src/indexer/typescript.rs` | 3 | Done |
 | 4 | Rust | tree-sitter-rust | `src/indexer/rust.rs` | 3 | Done |
 | 5 | Go | tree-sitter-go | `src/indexer/go.rs` | 3 | Done |
 | 6 | Ruby | tree-sitter-ruby | `src/indexer/ruby.rs` | 3 | Done |

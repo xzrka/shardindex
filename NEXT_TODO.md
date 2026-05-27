@@ -229,20 +229,23 @@ Advanced APIs for safe refactoring workflows. All 4 APIs implemented with MCP ha
 
 ### Cross-language references
 
-- [ ] Implement `CrossLanguageResolver` (masterplan §8.3)
+- [x] Implement `CrossLanguageResolver` (masterplan §8.3)
   - Detect shared interface names across languages
   - Create weak ref edges with `cross_language_schema` kind
 
 ### Agent skill protocol
 
-- [ ] Complete system prompt per masterplan §5.1
+- [x] Complete system prompt per masterplan §5.1
   - Full ShardIndex Skill Protocol with auto-invocation rules
   - Context budget awareness section
   - Response to stale index protocol
+  - MCP tool registration (auto_use config, auto_trigger patterns)
+  - Fallback strategy diagram
+  - Updated prompts/shardindex_skill_v1.md (v1.1.0)
 
 ### TypeScript file naming
 
-- [ ] Rename `src/indexer/typecript.rs` → `src/indexer/typescript.rs`
+- [x] Rename `src/indexer/typecript.rs` → `src/indexer/typescript.rs`
   - Fix typo in filename (currently `typecript` instead of `typescript`)
   - Update `src/indexer/mod.rs` module declaration
 

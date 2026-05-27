@@ -15,6 +15,7 @@ mod agent_cache;
 mod cli;
 mod compression;
 mod config;
+mod cross_language;
 mod daemon;
 mod database;
 mod format;

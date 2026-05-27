@@ -17,7 +17,7 @@ mod scala;
 mod swift;
 #[cfg(test)]
 mod tests;
-mod r#typecript;
+mod r#typescript;
 /// Indexer engine — file scan → Blake3 hash → AST parsing → DB storage
 ///
 /// Incremental indexing: only reparse changed files. Supports multiple languages.
@@ -46,7 +46,7 @@ pub use ruby::RubyParser;
 pub use r#rust::RustParser;
 pub use scala::ScalaParser;
 pub use swift::SwiftParser;
-pub use r#typecript::TypeScriptParser;
+pub use r#typescript::TypeScriptParser;
 pub use zig::ZigParser;
 
 use anyhow::Context;

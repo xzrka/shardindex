@@ -2,6 +2,7 @@ pub mod agent_cache;
 pub mod cli;
 pub mod compression;
 pub mod config;
+pub mod cross_language;
 pub mod daemon;
 pub mod database;
 pub mod error;
