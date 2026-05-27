@@ -1,6 +1,24 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use shardindex::database::{IndexDb, ReferenceRecord, SymbolRecord};
 
+fn make_symbol(name: &str) -> SymbolRecord {
+    SymbolRecord {
+        id: 0,
+        file_path: "test.py".to_string(),
+        name: name.to_string(),
+        kind: "function".to_string(),
+        start_line: 1,
+        end_line: 10,
+        start_col: 0,
+        end_col: 4,
+        signature: Some(format!("def {}(): pass", name)),
+        docstring: None,
+        parent_symbol: None,
+        qualified_name: format!("test.{}", name),
+        token_count: 10,
+    }
+}
+
 fn benchmark_db_insert(c: &mut Criterion) {
     let mut group = c.benchmark_group("database/insert");
 
@@ -8,19 +26,7 @@ fn benchmark_db_insert(c: &mut Criterion) {
 
     group.bench_function("single_symbol", |b| {
         b.iter(|| {
-            let symbol = SymbolRecord {
-                id: 0,
-                file_path: "test.py".to_string(),
-                name: "test_function".to_string(),
-                kind: "function".to_string(),
-                start_line: 1,
-                end_line: 10,
-                start_col: 0,
-                end_col: 4,
-                signature: Some("def test_function(): pass".to_string()),
-                docstring: None,
-                parent_symbol: None,
-            };
+            let symbol = make_symbol("test_function");
             let _ = db.insert_symbol(black_box(&symbol));
         })
     });
@@ -28,19 +34,7 @@ fn benchmark_db_insert(c: &mut Criterion) {
     group.bench_function("batch_symbols_100", |b| {
         b.iter(|| {
             for i in 0..100 {
-                let symbol = SymbolRecord {
-                    id: 0,
-                    file_path: "test.py".to_string(),
-                    name: format!("function_{}", i),
-                    kind: "function".to_string(),
-                    start_line: 1,
-                    end_line: 10,
-                    start_col: 0,
-                    end_col: 4,
-                    signature: None,
-                    docstring: None,
-                    parent_symbol: None,
-                };
+                let symbol = make_symbol(&format!("function_{}", i));
                 let _ = db.insert_symbol(black_box(&symbol));
             }
         })
@@ -56,19 +50,7 @@ fn benchmark_db_search(c: &mut Criterion) {
 
     // Insert test data
     for i in 0..1000 {
-        let symbol = SymbolRecord {
-            id: 0,
-            file_path: "test.py".to_string(),
-            name: format!("function_{}", i),
-            kind: "function".to_string(),
-            start_line: 1,
-            end_line: 10,
-            start_col: 0,
-            end_col: 4,
-            signature: None,
-            docstring: None,
-            parent_symbol: None,
-        };
+        let symbol = make_symbol(&format!("function_{}", i));
         let _ = db.insert_symbol(&symbol);
     }
 
@@ -94,19 +76,7 @@ fn benchmark_db_neighbors(c: &mut Criterion) {
 
     // Insert symbols
     for i in 0..100 {
-        let symbol = SymbolRecord {
-            id: 0,
-            file_path: "test.py".to_string(),
-            name: format!("func_{}", i),
-            kind: "function".to_string(),
-            start_line: 1,
-            end_line: 10,
-            start_col: 0,
-            end_col: 4,
-            signature: None,
-            docstring: None,
-            parent_symbol: None,
-        };
+        let symbol = make_symbol(&format!("func_{}", i));
         let _ = db.insert_symbol(&symbol);
     }
 

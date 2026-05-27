@@ -399,7 +399,7 @@ use anyhow::Context;
                       if member.kind() == "property_identifier" {
                           if let Some(member_name) = member.utf8_text(source).ok() {
                               result.symbols.push(ParsedSymbol {
-                                  name: format!("{}::{}", name, member_name),
+                                  name: member_name.to_string(),
                                   kind: SymbolKind::Variable,
                                   start_line: member.start_position().row + 1,
                                   end_line: member.end_position().row + 1,

@@ -1,35 +1,31 @@
-use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
+use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use shardindex::indexer::{
-    javascript::JavaScriptParser, python::PythonParser, r#go::GoParser, r#rust::RustParser,
-    typecript::TypeScriptParser, types::SourceCodeParser,
+    GoParser, JavaScriptParser, PythonParser, RustParser, SourceCodeParser, TypeScriptParser,
 };
 
 fn benchmark_python_parser(c: &mut Criterion) {
     let mut group = c.benchmark_group("parser/python");
-    
-    // Small function
+
     let small_fn = r#"
 def add(a, b):
     return a + b
 "#;
-    
-    // Medium function with logic
+
     let medium_fn = r#"
 def calculate_fibonacci(n):
     if n <= 0:
         return []
     elif n == 1:
         return [0]
-    
+
     fib_sequence = [0, 1]
     for i in range(2, n):
         next_val = fib_sequence[i-1] + fib_sequence[i-2]
         fib_sequence.append(next_val)
-    
+
     return fib_sequence
 "#;
-    
-    // Large function with multiple operations
+
     let large_fn = r#"
 def process_data(data):
     results = []
@@ -57,19 +53,18 @@ def process_data(data):
     return results
 "#;
 
-    // Class definition
     let class_def = r#"
 class DataProcessor:
     def __init__(self, config):
         self.config = config
         self.results = []
-    
+
     def process(self, data):
         for item in data:
             result = self.transform(item)
             self.results.append(result)
         return self.results
-    
+
     def transform(self, item):
         return {
             'id': item.get('id'),
@@ -79,31 +74,39 @@ class DataProcessor:
 "#;
 
     group.bench_function("small_function", |b| {
-        let parser = PythonParser::new();
-        b.iter(|| parser.parse(black_box(small_fn)))
+        b.iter(|| {
+            let mut parser = PythonParser::new().unwrap();
+            parser.parse(black_box(small_fn))
+        })
     });
-    
+
     group.bench_function("medium_function", |b| {
-        let parser = PythonParser::new();
-        b.iter(|| parser.parse(black_box(medium_fn)))
+        b.iter(|| {
+            let mut parser = PythonParser::new().unwrap();
+            parser.parse(black_box(medium_fn))
+        })
     });
-    
+
     group.bench_function("large_function", |b| {
-        let parser = PythonParser::new();
-        b.iter(|| parser.parse(black_box(large_fn)))
+        b.iter(|| {
+            let mut parser = PythonParser::new().unwrap();
+            parser.parse(black_box(large_fn))
+        })
     });
-    
+
     group.bench_function("class_definition", |b| {
-        let parser = PythonParser::new();
-        b.iter(|| parser.parse(black_box(class_def)))
+        b.iter(|| {
+            let mut parser = PythonParser::new().unwrap();
+            parser.parse(black_box(class_def))
+        })
     });
-    
+
     group.finish();
 }
 
 fn benchmark_javascript_parser(c: &mut Criterion) {
     let mut group = c.benchmark_group("parser/javascript");
-    
+
     let js_fn = r#"
 function calculateFactorial(n) {
     if (n <= 1) return 1;
@@ -120,14 +123,14 @@ class EventEmitter {
     constructor() {
         this.listeners = new Map();
     }
-    
+
     on(event, callback) {
         if (!this.listeners.has(event)) {
             this.listeners.set(event, []);
         }
         this.listeners.get(event).push(callback);
     }
-    
+
     emit(event, ...args) {
         const callbacks = this.listeners.get(event) || [];
         for (const callback of callbacks) {
@@ -138,26 +141,30 @@ class EventEmitter {
 "#;
 
     group.bench_function("function", |b| {
-        let parser = JavaScriptParser::new();
-        b.iter(|| parser.parse(black_box(js_fn)))
+        b.iter(|| {
+            let mut parser = JavaScriptParser::new().unwrap();
+            parser.parse(black_box(js_fn))
+        })
     });
-    
+
     group.bench_function("class", |b| {
-        let parser = JavaScriptParser::new();
-        b.iter(|| parser.parse(black_box(js_class)))
+        b.iter(|| {
+            let mut parser = JavaScriptParser::new().unwrap();
+            parser.parse(black_box(js_class))
+        })
     });
-    
+
     group.finish();
 }
 
 fn benchmark_rust_parser(c: &mut Criterion) {
     let mut group = c.benchmark_group("parser/rust");
-    
+
     let rust_fn = r#"
 fn fibonacci(n: u32) -> Vec<u32> {
     if n == 0 { return vec![]; }
     if n == 1 { return vec![0]; }
-    
+
     let mut seq = vec![0, 1];
     for i in 2..n {
         let next = seq[i as usize - 1] + seq[i as usize - 2];
@@ -184,7 +191,7 @@ impl User {
             active: true,
         }
     }
-    
+
     fn deactivate(&mut self) {
         self.active = false;
     }
@@ -192,21 +199,25 @@ impl User {
 "#;
 
     group.bench_function("function", |b| {
-        let parser = RustParser::new();
-        b.iter(|| parser.parse(black_box(rust_fn)))
+        b.iter(|| {
+            let mut parser = RustParser::new().unwrap();
+            parser.parse(black_box(rust_fn))
+        })
     });
-    
+
     group.bench_function("struct_with_impl", |b| {
-        let parser = RustParser::new();
-        b.iter(|| parser.parse(black_box(rust_struct)))
+        b.iter(|| {
+            let mut parser = RustParser::new().unwrap();
+            parser.parse(black_box(rust_struct))
+        })
     });
-    
+
     group.finish();
 }
 
 fn benchmark_typescript_parser(c: &mut Criterion) {
     let mut group = c.benchmark_group("parser/typescript");
-    
+
     let ts_interface = r#"
 interface User {
     id: number;
@@ -217,15 +228,15 @@ interface User {
 
 class UserService {
     private users: Map<number, User>;
-    
+
     constructor() {
         this.users = new Map();
     }
-    
+
     addUser(user: User): void {
         this.users.set(user.id, user);
     }
-    
+
     getUser(id: number): User | undefined {
         return this.users.get(id);
     }
@@ -233,16 +244,18 @@ class UserService {
 "#;
 
     group.bench_function("interface_and_class", |b| {
-        let parser = TypeScriptParser::new();
-        b.iter(|| parser.parse(black_box(ts_interface)))
+        b.iter(|| {
+            let mut parser = TypeScriptParser::new().unwrap();
+            parser.parse(black_box(ts_interface))
+        })
     });
-    
+
     group.finish();
 }
 
 fn benchmark_go_parser(c: &mut Criterion) {
     let mut group = c.benchmark_group("parser/go");
-    
+
     let go_fn = r#"
 package main
 
@@ -253,7 +266,7 @@ func fibonacci(n int) []int {
     if n == 1 {
         return []int{0}
     }
-    
+
     seq := []int{0, 1}
     for i := 2; i < n; i++ {
         next := seq[i-1] + seq[i-2]
@@ -264,17 +277,18 @@ func fibonacci(n int) []int {
 "#;
 
     group.bench_function("function", |b| {
-        let parser = GoParser::new();
-        b.iter(|| parser.parse(black_box(go_fn)))
+        b.iter(|| {
+            let mut parser = GoParser::new().unwrap();
+            parser.parse(black_box(go_fn))
+        })
     });
-    
+
     group.finish();
 }
 
 fn benchmark_all_parsers(c: &mut Criterion) {
     let mut group = c.benchmark_group("parser/comparison");
-    
-    // Similar complexity across languages
+
     let python_code = r#"
 def process(items):
     results = []
@@ -333,30 +347,40 @@ func process(items []int) []int {
 "#;
 
     group.bench_function("python", |b| {
-        let parser = PythonParser::new();
-        b.iter(|| parser.parse(black_box(python_code)))
+        b.iter(|| {
+            let mut parser = PythonParser::new().unwrap();
+            parser.parse(black_box(python_code))
+        })
     });
-    
+
     group.bench_function("javascript", |b| {
-        let parser = JavaScriptParser::new();
-        b.iter(|| parser.parse(black_box(js_code)))
+        b.iter(|| {
+            let mut parser = JavaScriptParser::new().unwrap();
+            parser.parse(black_box(js_code))
+        })
     });
-    
+
     group.bench_function("rust", |b| {
-        let parser = RustParser::new();
-        b.iter(|| parser.parse(black_box(rust_code)))
+        b.iter(|| {
+            let mut parser = RustParser::new().unwrap();
+            parser.parse(black_box(rust_code))
+        })
     });
-    
+
     group.bench_function("typescript", |b| {
-        let parser = TypeScriptParser::new();
-        b.iter(|| parser.parse(black_box(ts_code)))
+        b.iter(|| {
+            let mut parser = TypeScriptParser::new().unwrap();
+            parser.parse(black_box(ts_code))
+        })
     });
-    
+
     group.bench_function("go", |b| {
-        let parser = GoParser::new();
-        b.iter(|| parser.parse(black_box(go_code)))
+        b.iter(|| {
+            let mut parser = GoParser::new().unwrap();
+            parser.parse(black_box(go_code))
+        })
     });
-    
+
     group.finish();
 }
 

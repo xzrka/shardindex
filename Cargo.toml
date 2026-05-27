@@ -67,6 +67,17 @@ tree-sitter-haskell = "0.23.1"
 tree-sitter-c = "0.24.2"
 tree-sitter-markdown-updated = { version = "0.1.0", package = "tree-sitter-markdown-updated" }
 
+[dev-dependencies]
+criterion = "0.5"
+
+[[bench]]
+name = "db_bench"
+harness = false
+
+[[bench]]
+name = "parser_bench"
+harness = false
+
 [features]
 default = []
 graphviz = ["petgraph"]

@@ -210,7 +210,7 @@ use anyhow::Context;
                               .and_then(|n| n.utf8_text(source).ok())
                           {
                               result.symbols.push(ParsedSymbol {
-                                  name: format!("{}::{}", name, variant_name),
+                                  name: variant_name.to_string(),
                                   kind: SymbolKind::Variable,
                                   start_line: variant.start_position().row + 1,
                                   end_line: variant.end_position().row + 1,
