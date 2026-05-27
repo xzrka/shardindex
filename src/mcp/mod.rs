@@ -16,12 +16,76 @@ use tracing::info;
 
 use crate::database::IndexDb;
 use crate::agent_cache::AgentCache;
+use crate::token_budget::{enforce_budget, TokenBudgetedResponse};
 
 /// MCP 서버 상태 (공유) — rusqlite Connection은 !Send이므로 Mutex로 감쌈
 #[derive(Clone)]
 pub struct ServerState {
     pub db: Arc<Mutex<IndexDb>>,
     pub cache: Arc<AgentCache>,
+}
+
+/// ─── Budget Helper ───
+
+/// Extract optional `token_budget` parameter from JSON-RPC params.
+fn get_token_budget(params: &serde_json::Value) -> Option<usize> {
+    params
+        .get("token_budget")
+        .and_then(|v| v.as_u64())
+        .map(|v| v as usize)
+        .filter(|&b| b > 0)
+}
+
+/// Apply token budget enforcement to a result JSON, wrapping in TokenBudgetedResponse if needed.
+/// Returns the final JSON to send as the MCP result.
+fn apply_budget(
+    result: serde_json::Value,
+    budget: Option<usize>,
+) -> serde_json::Value {
+    let (reduced, truncated, strategy) = match budget {
+        Some(b) => enforce_budget(&result, b),
+        None => (result.clone(), false, None),
+    };
+
+    // If budget was applied and response was truncated, wrap in TokenBudgetedResponse
+    if budget.is_some() && truncated {
+        let budget_resp = TokenBudgetedResponse::new(reduced.clone(), budget)
+            .map(|mut r| {
+                if let Some(s) = &strategy {
+                    r.compression_applied = Some(s.clone());
+                }
+                r
+            })
+            .map(|r| serde_json::to_value(r).unwrap_or(reduced.clone()))
+            .unwrap_or(reduced);
+        budget_resp
+    } else {
+        // No budget or within budget — attach metadata but don't wrap
+        if let Some(b) = budget {
+            let tokens_used = crate::token_budget::estimate_json_tokens(&reduced);
+            let mut obj = match reduced {
+                serde_json::Value::Object(mut map) => {
+                    map.insert("tokens_used".to_string(), serde_json::json!(tokens_used));
+                    map.insert("budget_remaining".to_string(), serde_json::json!(b.saturating_sub(tokens_used)));
+                    serde_json::Value::Object(map)
+                }
+                other => other,
+            };
+            obj
+        } else {
+            reduced
+        }
+    }
+}
+
+/// Build a budget-aware success response.
+fn budgeted_success(
+    id: Option<serde_json::Value>,
+    result: serde_json::Value,
+    budget: Option<usize>,
+) -> JsonRpcResponse {
+    let final_result = apply_budget(result, budget);
+    JsonRpcResponse::success(id, final_result)
 }
 
 /// JSON-RPC 요청
@@ -84,6 +148,8 @@ pub async fn handle_read(
         return JsonRpcResponse::error(get_id(&params), -32601, "Missing 'file' parameter");
     }
 
+    let budget = get_token_budget(&params);
+
     // Cache check
     if let Some(cached) = state.cache.get("read", &params) {
         return JsonRpcResponse::success(
@@ -105,7 +171,7 @@ pub async fn handle_read(
             let result_str = serde_json::to_string(&result).unwrap_or_default();
             // Cache the result (best-effort)
             let _ = state.cache.set("read", &params, &result_str, None);
-            JsonRpcResponse::success(get_id(&params), result)
+            budgeted_success(get_id(&params), result, budget)
         }
         Err(e) => JsonRpcResponse::error(
             get_id(&params),
@@ -124,6 +190,8 @@ pub async fn handle_neighbors(
     if symbol.is_empty() {
         return JsonRpcResponse::error(get_id(&params), -32601, "Missing 'symbol' parameter");
     }
+
+    let budget = get_token_budget(&params);
 
     // Cache check
     if let Some(cached) = state.cache.get("neighbors", &params) {
@@ -145,7 +213,7 @@ pub async fn handle_neighbors(
             });
             let result_str = serde_json::to_string(&result).unwrap_or_default();
             let _ = state.cache.set("neighbors", &params, &result_str, None);
-            JsonRpcResponse::success(get_id(&params), result)
+            budgeted_success(get_id(&params), result, budget)
         }
         Err(e) => JsonRpcResponse::error(
             get_id(&params),
@@ -164,6 +232,8 @@ pub async fn handle_impact(
     if symbol.is_empty() {
         return JsonRpcResponse::error(get_id(&params), -32601, "Missing 'symbol' parameter");
     }
+
+    let budget = get_token_budget(&params);
 
     // Cache check
     if let Some(cached) = state.cache.get("impact", &params) {
@@ -186,7 +256,7 @@ pub async fn handle_impact(
             });
             let result_str = serde_json::to_string(&result).unwrap_or_default();
             let _ = state.cache.set("impact", &params, &result_str, None);
-            JsonRpcResponse::success(get_id(&params), result)
+            budgeted_success(get_id(&params), result, budget)
         }
         Err(e) => JsonRpcResponse::error(
             get_id(&params),
@@ -205,6 +275,8 @@ pub async fn handle_search(
     if query.is_empty() {
         return JsonRpcResponse::error(get_id(&params), -32601, "Missing 'query' parameter");
     }
+
+    let budget = get_token_budget(&params);
 
     // Cache check
     if let Some(cached) = state.cache.get("search", &params) {
@@ -278,7 +350,7 @@ pub async fn handle_search(
         });
         let result_str = serde_json::to_string(&result).unwrap_or_default();
         let _ = state.cache.set("search", &params, &result_str, None);
-        return JsonRpcResponse::success(get_id(&params), result);
+        return budgeted_success(get_id(&params), result, budget);
     }
 
     // advanced fuzzy search
@@ -305,7 +377,7 @@ pub async fn handle_search(
             });
             let result_str = serde_json::to_string(&result).unwrap_or_default();
             let _ = state.cache.set("search", &params, &result_str, None);
-            JsonRpcResponse::success(get_id(&params), result)
+            budgeted_success(get_id(&params), result, budget)
         }
         Err(e) => JsonRpcResponse::error(
             get_id(&params),
