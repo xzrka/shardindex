@@ -358,7 +358,9 @@ export { Config };
 export default function main() {}
 "#;
     let result = parser.parse(code).unwrap();
-    let exports: Vec<&str> = result.symbols.iter()
+    let exports: Vec<&str> = result
+        .symbols
+        .iter()
         .filter(|s| s.kind == SymbolKind::Export)
         .map(|s| s.name.as_str())
         .collect();
@@ -449,7 +451,11 @@ c.Value++
 }
 "#;
     let result = parser.parse(code).unwrap();
-    let method = result.symbols.iter().find(|s| s.name == "Increment").unwrap();
+    let method = result
+        .symbols
+        .iter()
+        .find(|s| s.name == "Increment")
+        .unwrap();
     assert_eq!(method.kind, SymbolKind::Method);
     assert_eq!(method.parent.as_deref(), Some("Counter"));
 }
@@ -489,7 +495,11 @@ def add(a, b)
 end
 "#;
     let result = parser.parse(code).unwrap();
-    let funcs: Vec<_> = result.symbols.iter().filter(|s| s.kind == SymbolKind::Method).collect();
+    let funcs: Vec<_> = result
+        .symbols
+        .iter()
+        .filter(|s| s.kind == SymbolKind::Method)
+        .collect();
     assert_eq!(funcs.len(), 2);
     assert_eq!(funcs[0].name, "greet");
     assert_eq!(funcs[1].name, "add");
@@ -512,7 +522,11 @@ class Dog < Animal
 end
 "#;
     let result = parser.parse(code).unwrap();
-    let classes: Vec<_> = result.symbols.iter().filter(|s| s.kind == SymbolKind::Class).collect();
+    let classes: Vec<_> = result
+        .symbols
+        .iter()
+        .filter(|s| s.kind == SymbolKind::Class)
+        .collect();
     assert_eq!(classes.len(), 2);
     assert_eq!(classes[0].name, "Animal");
     assert_eq!(classes[1].name, "Dog");
@@ -541,7 +555,12 @@ public class User {
 }
 "#;
     let result = parser.parse(code).unwrap();
-    assert!(result.symbols.iter().any(|s| s.name == "User" && s.kind == SymbolKind::Class));
+    assert!(
+        result
+            .symbols
+            .iter()
+            .any(|s| s.name == "User" && s.kind == SymbolKind::Class)
+    );
 }
 
 #[test]
@@ -583,7 +602,12 @@ function greet($name) {
 }
 "#;
     let result = parser.parse(code).unwrap();
-    assert!(result.symbols.iter().any(|s| s.name == "greet" && s.kind == SymbolKind::Function));
+    assert!(
+        result
+            .symbols
+            .iter()
+            .any(|s| s.name == "greet" && s.kind == SymbolKind::Function)
+    );
 }
 
 #[test]
@@ -598,7 +622,12 @@ class User {
 }
 "#;
     let result = parser.parse(code).unwrap();
-    assert!(result.symbols.iter().any(|s| s.name == "User" && s.kind == SymbolKind::Class));
+    assert!(
+        result
+            .symbols
+            .iter()
+            .any(|s| s.name == "User" && s.kind == SymbolKind::Class)
+    );
 }
 
 // ---- Julia tests ----
@@ -612,7 +641,12 @@ function greet(name::String)::String
 end
 "#;
     let result = parser.parse(code).unwrap();
-    assert!(result.symbols.iter().any(|s| s.name == "greet" && s.kind == SymbolKind::Function));
+    assert!(
+        result
+            .symbols
+            .iter()
+            .any(|s| s.name == "greet" && s.kind == SymbolKind::Function)
+    );
 }
 
 #[test]
@@ -642,7 +676,11 @@ local function add(a, b)
 end
 "#;
     let result = parser.parse(code).unwrap();
-    let funcs: Vec<_> = result.symbols.iter().filter(|s| s.kind == SymbolKind::Function).collect();
+    let funcs: Vec<_> = result
+        .symbols
+        .iter()
+        .filter(|s| s.kind == SymbolKind::Function)
+        .collect();
     assert_eq!(funcs.len(), 2);
     assert_eq!(funcs[0].name, "greet");
     assert_eq!(funcs[1].name, "add");
@@ -673,7 +711,12 @@ class User {
 }
 "#;
     let result = parser.parse(code).unwrap();
-    assert!(result.symbols.iter().any(|s| s.name == "User" && s.kind == SymbolKind::Class));
+    assert!(
+        result
+            .symbols
+            .iter()
+            .any(|s| s.name == "User" && s.kind == SymbolKind::Class)
+    );
 }
 
 #[test]
@@ -685,7 +728,12 @@ func greet(name: String) -> String {
 }
 "#;
     let result = parser.parse(code).unwrap();
-    assert!(result.symbols.iter().any(|s| s.name == "greet" && s.kind == SymbolKind::Function));
+    assert!(
+        result
+            .symbols
+            .iter()
+            .any(|s| s.name == "greet" && s.kind == SymbolKind::Function)
+    );
 }
 
 // ---- Zig tests ----
@@ -699,7 +747,12 @@ pub fn greet(name: []const u8) []const u8 {
 }
 "#;
     let result = parser.parse(code).unwrap();
-    assert!(result.symbols.iter().any(|s| s.name == "greet" && s.kind == SymbolKind::Function));
+    assert!(
+        result
+            .symbols
+            .iter()
+            .any(|s| s.name == "greet" && s.kind == SymbolKind::Function)
+    );
 }
 
 #[test]
@@ -718,46 +771,51 @@ pub const User = struct {
 // ---- Scala tests ----
 
 #[test]
- fn test_scala_class() {
-     let mut parser = ScalaParser::new().unwrap();
-     let code = r#"
+fn test_scala_class() {
+    let mut parser = ScalaParser::new().unwrap();
+    let code = r#"
 class User(val name: String, val age: Int)
 "#;
-     let result = parser.parse(code).unwrap();
-     assert!(result.symbols.iter().any(|s| s.name == "User"));
- }
+    let result = parser.parse(code).unwrap();
+    assert!(result.symbols.iter().any(|s| s.name == "User"));
+}
 
- #[test]
- fn test_scala_function() {
-     let mut parser = ScalaParser::new().unwrap();
-     let code = r#"
+#[test]
+fn test_scala_function() {
+    let mut parser = ScalaParser::new().unwrap();
+    let code = r#"
 def greet(name: String): String = {
  s"Hello, $name!"
 }
 "#;
-     let result = parser.parse(code).unwrap();
-     assert!(result.symbols.iter().any(|s| s.name == "greet" && s.kind == SymbolKind::Function));
- }
+    let result = parser.parse(code).unwrap();
+    assert!(
+        result
+            .symbols
+            .iter()
+            .any(|s| s.name == "greet" && s.kind == SymbolKind::Function)
+    );
+}
 
- #[test]
-   fn test_scala_calls() {
-       let mut parser = ScalaParser::new().unwrap();
-       let code = r#"
+#[test]
+fn test_scala_calls() {
+    let mut parser = ScalaParser::new().unwrap();
+    let code = r#"
  class UserService {
  def findUser(id: Long): Option[User] = {
  repository.findById(id)
  }
  }
  "#;
-       let result = parser.parse(code).unwrap();
-           let calls: Vec<_> = result
-               .references
-               .iter()
-               .filter(|r| r.ref_kind == "call")
-               .collect();
-           assert!(!calls.is_empty(), "Expected call references but got none");
-           assert_eq!(calls[0].callee_symbol, "findById");
-       }
+    let result = parser.parse(code).unwrap();
+    let calls: Vec<_> = result
+        .references
+        .iter()
+        .filter(|r| r.ref_kind == "call")
+        .collect();
+    assert!(!calls.is_empty(), "Expected call references but got none");
+    assert_eq!(calls[0].callee_symbol, "findById");
+}
 
 // ---- Elixir tests ----
 
@@ -786,7 +844,12 @@ defmodule MyApp do
 end
 "#;
     let result = parser.parse(code).unwrap();
-    assert!(result.symbols.iter().any(|s| s.name == "greet" && s.kind == SymbolKind::Function));
+    assert!(
+        result
+            .symbols
+            .iter()
+            .any(|s| s.name == "greet" && s.kind == SymbolKind::Function)
+    );
 }
 
 // ---- Dart tests ----
@@ -800,7 +863,12 @@ String greet(String name) {
 }
 "#;
     let result = parser.parse(code).unwrap();
-    assert!(result.symbols.iter().any(|s| s.name == "greet" && s.kind == SymbolKind::Function));
+    assert!(
+        result
+            .symbols
+            .iter()
+            .any(|s| s.name == "greet" && s.kind == SymbolKind::Function)
+    );
 }
 
 #[test]
@@ -815,7 +883,12 @@ class User {
 }
 "#;
     let result = parser.parse(code).unwrap();
-    assert!(result.symbols.iter().any(|s| s.name == "User" && s.kind == SymbolKind::Class));
+    assert!(
+        result
+            .symbols
+            .iter()
+            .any(|s| s.name == "User" && s.kind == SymbolKind::Class)
+    );
 }
 
 #[test]
@@ -844,13 +917,37 @@ class User {
     }
     eprintln!("Dart refs: {}", result.references.len());
     for ref_ in &result.references {
-        eprintln!("  - {} -> {} ({})", ref_.caller_symbol.as_deref().unwrap_or("?"), ref_.callee_symbol, ref_.ref_kind);
+        eprintln!(
+            "  - {} -> {} ({})",
+            ref_.caller_symbol.as_deref().unwrap_or("?"),
+            ref_.callee_symbol,
+            ref_.ref_kind
+        );
     }
-    
-    assert!(result.symbols.iter().any(|s| s.name == "User" && s.kind == SymbolKind::Class), "User class not found");
-    assert!(result.symbols.iter().any(|s| s.name == "greet"), "greet method not found");
-    assert!(result.symbols.iter().any(|s| s.name == "validateEmail"), "validateEmail method not found");
-    assert!(result.references.iter().any(|r| r.callee_symbol == "contains"), "contains call not found - refs count: {}", result.references.len());
+
+    assert!(
+        result
+            .symbols
+            .iter()
+            .any(|s| s.name == "User" && s.kind == SymbolKind::Class),
+        "User class not found"
+    );
+    assert!(
+        result.symbols.iter().any(|s| s.name == "greet"),
+        "greet method not found"
+    );
+    assert!(
+        result.symbols.iter().any(|s| s.name == "validateEmail"),
+        "validateEmail method not found"
+    );
+    assert!(
+        result
+            .references
+            .iter()
+            .any(|r| r.callee_symbol == "contains"),
+        "contains call not found - refs count: {}",
+        result.references.len()
+    );
 }
 
 // ---- Haskell tests ----
@@ -863,7 +960,12 @@ greet :: String -> String
 greet name = "Hello, " ++ name
 "#;
     let result = parser.parse(code).unwrap();
-    assert!(result.symbols.iter().any(|s| s.name == "greet" && s.kind == SymbolKind::Function));
+    assert!(
+        result
+            .symbols
+            .iter()
+            .any(|s| s.name == "greet" && s.kind == SymbolKind::Function)
+    );
 }
 
 #[test]
@@ -888,7 +990,12 @@ int greet(const char *name) {
 }
 "#;
     let result = parser.parse(code).unwrap();
-    assert!(result.symbols.iter().any(|s| s.name == "greet" && s.kind == SymbolKind::Function));
+    assert!(
+        result
+            .symbols
+            .iter()
+            .any(|s| s.name == "greet" && s.kind == SymbolKind::Function)
+    );
 }
 
 #[test]
@@ -918,7 +1025,12 @@ public:
 };
 "#;
     let result = parser.parse(code).unwrap();
-    assert!(result.symbols.iter().any(|s| s.name == "User" && s.kind == SymbolKind::Class));
+    assert!(
+        result
+            .symbols
+            .iter()
+            .any(|s| s.name == "User" && s.kind == SymbolKind::Class)
+    );
 }
 
 #[test]
@@ -930,7 +1042,12 @@ void greet(const std::string& name) {
 }
 "#;
     let result = parser.parse(code).unwrap();
-    assert!(result.symbols.iter().any(|s| s.name == "greet" && s.kind == SymbolKind::Function));
+    assert!(
+        result
+            .symbols
+            .iter()
+            .any(|s| s.name == "greet" && s.kind == SymbolKind::Function)
+    );
 }
 
 // ---- Extended parser trait test ----
@@ -974,18 +1091,30 @@ fn test_all_parser_traits() {
 #[test]
 fn test_language_from_extension() {
     assert_eq!(Language::from_extension("file.py"), Some(Language::Python));
-    assert_eq!(Language::from_extension("file.js"), Some(Language::JavaScript));
+    assert_eq!(
+        Language::from_extension("file.js"),
+        Some(Language::JavaScript)
+    );
     assert_eq!(Language::from_extension("file.rs"), Some(Language::Rust));
-    assert_eq!(Language::from_extension("file.ts"), Some(Language::TypeScript));
+    assert_eq!(
+        Language::from_extension("file.ts"),
+        Some(Language::TypeScript)
+    );
     assert_eq!(Language::from_extension("file.go"), Some(Language::Go));
     assert_eq!(Language::from_extension("file.rb"), Some(Language::Ruby));
     assert_eq!(Language::from_extension("file.java"), Some(Language::Java));
     assert_eq!(Language::from_extension("file.php"), Some(Language::Php));
     assert_eq!(Language::from_extension("file.jl"), Some(Language::Julia));
     assert_eq!(Language::from_extension("file.lua"), Some(Language::Lua));
-    assert_eq!(Language::from_extension("file.swift"), Some(Language::Swift));
+    assert_eq!(
+        Language::from_extension("file.swift"),
+        Some(Language::Swift)
+    );
     assert_eq!(Language::from_extension("file.zig"), Some(Language::Zig));
-    assert_eq!(Language::from_extension("file.scala"), Some(Language::Scala));
+    assert_eq!(
+        Language::from_extension("file.scala"),
+        Some(Language::Scala)
+    );
     assert_eq!(Language::from_extension("file.ex"), Some(Language::Elixir));
     assert_eq!(Language::from_extension("file.exs"), Some(Language::Elixir));
     assert_eq!(Language::from_extension("file.dart"), Some(Language::Dart));

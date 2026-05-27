@@ -1,13 +1,12 @@
 pub mod schema;
 pub use schema::init_db;
 
+use anyhow::Context;
 /// SQLite 데이터베이스 연결 관리
 ///
 /// 파일 레벨 CRUD — 인덱싱 상태 조회
-
 use rusqlite::params;
 use rusqlite::{Connection, params_from_iter};
-use anyhow::Context;
 
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct FileRecord {
@@ -47,7 +46,8 @@ impl SymbolRecord {
     /// Extract module name from file path.
     pub fn module_name_from_path(file_path: &str) -> String {
         let path = std::path::Path::new(file_path);
-        let stem = path.components()
+        let stem = path
+            .components()
             .filter_map(|comp| {
                 if comp.as_os_str() == "src" || comp.as_os_str() == "lib" {
                     None
@@ -56,7 +56,8 @@ impl SymbolRecord {
                 }
             })
             .collect::<std::path::PathBuf>();
-        let mut parts: Vec<String> = stem.components()
+        let mut parts: Vec<String> = stem
+            .components()
             .filter_map(|comp| comp.as_os_str().to_str().map(|s| s.to_string()))
             .collect();
         if let Some(last) = parts.last_mut() {
@@ -157,7 +158,9 @@ pub struct OverrideRecord {
 
 impl std::fmt::Debug for IndexDb {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("IndexDb").field("db_path", &self.db_path).finish()
+        f.debug_struct("IndexDb")
+            .field("db_path", &self.db_path)
+            .finish()
     }
 }
 
@@ -218,18 +221,22 @@ impl IndexDb {
     /// 프로젝트 root_path 조회
     pub fn get_project_root(&self) -> Option<String> {
         self.conn
-            .query_row(
-                "SELECT root_path FROM project WHERE id = 1",
-                [],
-                |r| r.get::<_, String>(0),
-            )
+            .query_row("SELECT root_path FROM project WHERE id = 1", [], |r| {
+                r.get::<_, String>(0)
+            })
             .ok()
     }
 
     // ─── File Hash ───
 
     /// 파일 해시 저장 또는 업데이트
-    pub fn upsert_file(&self, path: &str, hash: &str, size: u64, modified: &str) -> Result<(), anyhow::Error> {
+    pub fn upsert_file(
+        &self,
+        path: &str,
+        hash: &str,
+        size: u64,
+        modified: &str,
+    ) -> Result<(), anyhow::Error> {
         self.conn.execute(
             r#"INSERT INTO file_hash (path, hash, size, modified)
                VALUES (?1, ?2, ?3, ?4)
@@ -241,18 +248,20 @@ impl IndexDb {
 
     /// 파일 해시 조회
     pub fn get_file_hash(&self, path: &str) -> Option<String> {
-        self.conn.query_row(
-            "SELECT hash FROM file_hash WHERE path = ?1",
-            params![path],
-            |row| row.get(0),
-        ).ok()
+        self.conn
+            .query_row(
+                "SELECT hash FROM file_hash WHERE path = ?1",
+                params![path],
+                |row| row.get(0),
+            )
+            .ok()
     }
 
     /// 변경된 파일 목록 조회 (인메모리 해시 맵과 비교용)
     pub fn all_file_hashes(&self) -> Result<Vec<FileRecord>, anyhow::Error> {
-        let mut stmt = self.conn.prepare(
-            "SELECT path, hash, size, modified FROM file_hash ORDER BY path"
-        )?;
+        let mut stmt = self
+            .conn
+            .prepare("SELECT path, hash, size, modified FROM file_hash ORDER BY path")?;
         let records = stmt.query_map(params![], |row| {
             Ok(FileRecord {
                 path: row.get(0)?,
@@ -270,23 +279,17 @@ impl IndexDb {
             "DELETE FROM reference WHERE caller_file = ?1 OR callee_file = ?1",
             params![path],
         )?;
-        self.conn.execute(
-            "DELETE FROM symbol WHERE file_path = ?1",
-            params![path],
-        )?;
-        self.conn.execute(
-            "DELETE FROM file_hash WHERE path = ?1",
-            params![path],
-        )?;
+        self.conn
+            .execute("DELETE FROM symbol WHERE file_path = ?1", params![path])?;
+        self.conn
+            .execute("DELETE FROM file_hash WHERE path = ?1", params![path])?;
         Ok(())
     }
 
     /// 파일의 심볼만 삭제 (재인덱싱 전 정리)
     pub fn remove_file_symbols(&self, path: &str) -> Result<(), anyhow::Error> {
-        self.conn.execute(
-            "DELETE FROM symbol WHERE file_path = ?1",
-            params![path],
-        )?;
+        self.conn
+            .execute("DELETE FROM symbol WHERE file_path = ?1", params![path])?;
         self.conn.execute(
             "DELETE FROM reference WHERE caller_file = ?1",
             params![path],
@@ -313,7 +316,7 @@ impl IndexDb {
 
     /// 파일의 모든 심볼 조회
     pub fn file_symbols(&self, file_path: &str) -> Result<Vec<SymbolRecord>, anyhow::Error> {
-       let mut stmt = self.conn.prepare(
+        let mut stmt = self.conn.prepare(
             "SELECT id, file_path, name, kind, start_line, end_line, start_col, end_col, signature, docstring, parent_symbol, qualified_name, COALESCE(token_count, 0)
              FROM symbol WHERE file_path = ?1 ORDER BY start_line"
         )?;
@@ -389,7 +392,7 @@ impl IndexDb {
                FROM reference
                WHERE caller_symbol = ?1 OR callee_symbol = ?1
                ORDER BY ref_kind, line
-               LIMIT 100"#
+               LIMIT 100"#,
         )?;
         let records = stmt.query_map(params![symbol_name], |row| {
             Ok(ReferenceRecord {
@@ -408,17 +411,23 @@ impl IndexDb {
     }
 
     /// 심볼 영향도 분석 — 이 심볼을 사용하는 모든 파일/심볼
-    pub fn impact(&self, symbol_name: &str) -> Result<(Vec<SymbolRecord>, Vec<ReferenceRecord>), anyhow::Error> {
+    pub fn impact(
+        &self,
+        symbol_name: &str,
+    ) -> Result<(Vec<SymbolRecord>, Vec<ReferenceRecord>), anyhow::Error> {
         let (filter_col, filter_arg) = if symbol_name.contains('.') {
             ("qualified_name", symbol_name.to_string())
         } else {
             ("name", symbol_name.to_string())
         };
-        let resolved_name: String = self.conn.query_row(
-            &format!("SELECT name FROM symbol WHERE {} = ?1 LIMIT 1", filter_col),
-            params![filter_arg],
-            |row| row.get(0),
-        ).unwrap_or_else(|_| symbol_name.to_string());
+        let resolved_name: String = self
+            .conn
+            .query_row(
+                &format!("SELECT name FROM symbol WHERE {} = ?1 LIMIT 1", filter_col),
+                params![filter_arg],
+                |row| row.get(0),
+            )
+            .unwrap_or_else(|_| symbol_name.to_string());
 
         let callers: Vec<SymbolRecord> = {
             let mut stmt = self.conn.prepare(
@@ -442,7 +451,8 @@ impl IndexDb {
                     qualified_name: row.get::<_, Option<String>>(11)?.unwrap_or_default(),
                     token_count: row.get::<_, usize>(12)?,
                 })
-            })?.collect::<Result<Vec<_>, _>>()?
+            })?
+            .collect::<Result<Vec<_>, _>>()?
         };
 
         let all_refs = self.neighbors(&resolved_name)?;
@@ -491,20 +501,20 @@ impl IndexDb {
     pub fn impact_ranked(
         &self,
         symbol_name: &str,
-    ) -> Result<
-        (Vec<(SymbolRecord, Option<f64>)>, Vec<ReferenceRecord>),
-        anyhow::Error,
-    > {
+    ) -> Result<(Vec<(SymbolRecord, Option<f64>)>, Vec<ReferenceRecord>), anyhow::Error> {
         let (filter_col, filter_arg) = if symbol_name.contains('.') {
             ("qualified_name", symbol_name.to_string())
         } else {
             ("name", symbol_name.to_string())
         };
-        let resolved_name: String = self.conn.query_row(
-            &format!("SELECT name FROM symbol WHERE {} = ?1 LIMIT 1", filter_col),
-            params![filter_arg],
-            |row| row.get(0),
-        ).unwrap_or_else(|_| symbol_name.to_string());
+        let resolved_name: String = self
+            .conn
+            .query_row(
+                &format!("SELECT name FROM symbol WHERE {} = ?1 LIMIT 1", filter_col),
+                params![filter_arg],
+                |row| row.get(0),
+            )
+            .unwrap_or_else(|_| symbol_name.to_string());
 
         // 직접 호출하는 심볼들 (랭킹 JOIN)
         let mut stmt = self.conn.prepare(
@@ -569,11 +579,12 @@ impl IndexDb {
     /// 가장 많은 언어를 반환합니다. 둘 다 없으면 `None`을 반환합니다.
     pub fn detect_project_language(&self) -> Option<String> {
         // 1. project 테이블에서 language 확인
-        if let Ok(lang) = self.conn.query_row(
-            "SELECT language FROM project WHERE id = 1",
-            [],
-            |r| r.get::<_, String>(0),
-        ) {
+        if let Ok(lang) =
+            self.conn
+                .query_row("SELECT language FROM project WHERE id = 1", [], |r| {
+                    r.get::<_, String>(0)
+                })
+        {
             if !lang.is_empty() && lang != "unknown" {
                 return Some(lang);
             }
@@ -961,19 +972,18 @@ impl IndexDb {
                  WHERE query_key = ?1",
             )
             .ok()?;
-        stmt
-            .query_row(params![query_key], |row| {
-                Ok(AgentCacheRecord {
-                    id: row.get(0)?,
-                    query_key: row.get(1)?,
-                    query_hash: row.get(2)?,
-                    result_json: row.get(3)?,
-                    created_at: row.get(4)?,
-                    expires_at: row.get(5)?,
-                    hit_count: row.get(6)?,
-                })
+        stmt.query_row(params![query_key], |row| {
+            Ok(AgentCacheRecord {
+                id: row.get(0)?,
+                query_key: row.get(1)?,
+                query_hash: row.get(2)?,
+                result_json: row.get(3)?,
+                created_at: row.get(4)?,
+                expires_at: row.get(5)?,
+                hit_count: row.get(6)?,
             })
-            .ok()
+        })
+        .ok()
     }
 
     /// 캐시 저장 (query_key → result_json, TTL 초)
@@ -1059,14 +1069,17 @@ impl IndexDb {
             .conn
             .query_row("SELECT COUNT(*) FROM agent_cache", [], |r| r.get(0))
             .unwrap_or(0);
-        let active: usize = self.conn.query_row(
-            "SELECT COUNT(*) FROM agent_cache WHERE expires_at > ?1",
-            params![now_ms],
-            |r| r.get(0),
-        ).unwrap_or(0);
+        let active: usize = self
+            .conn
+            .query_row(
+                "SELECT COUNT(*) FROM agent_cache WHERE expires_at > ?1",
+                params![now_ms],
+                |r| r.get(0),
+            )
+            .unwrap_or(0);
         let expired = total - active;
         Ok((total, active, expired))
-   }
+    }
 
     /// Flush SQLite WAL mode — checkpoint all WAL frames to the main database.
     /// Use before graceful shutdown to ensure durability.
@@ -1118,20 +1131,22 @@ impl IndexDb {
                        created_at, updated_at FROM overrides ORDER BY id",
             )
             .context("prepare list_overrides")?;
-        let rows = stmt.query_map([], |r| {
-            Ok(OverrideRecord {
-                id: r.get(0)?,
-                caller_symbol: r.get(1)?,
-                callee_symbol: r.get(2)?,
-                ref_kind: r.get(3)?,
-                confidence: r.get(4)?,
-                reason: r.get(5)?,
-                created_at: r.get(6)?,
-                updated_at: r.get(7)?,
+        let rows = stmt
+            .query_map([], |r| {
+                Ok(OverrideRecord {
+                    id: r.get(0)?,
+                    caller_symbol: r.get(1)?,
+                    callee_symbol: r.get(2)?,
+                    ref_kind: r.get(3)?,
+                    confidence: r.get(4)?,
+                    reason: r.get(5)?,
+                    created_at: r.get(6)?,
+                    updated_at: r.get(7)?,
+                })
             })
-        })
-        .context("query list_overrides")?;
-        rows.collect::<Result<Vec<_>, _>>().context("collect list_overrides")
+            .context("query list_overrides")?;
+        rows.collect::<Result<Vec<_>, _>>()
+            .context("collect list_overrides")
     }
 
     /// Get overrides for a specific symbol (as caller or callee)
@@ -1144,39 +1159,57 @@ impl IndexDb {
                        WHERE caller_symbol = ?1 OR callee_symbol = ?1 ORDER BY id",
             )
             .context("prepare overrides_for_symbol")?;
-        let rows = stmt.query_map(rusqlite::params![symbol], |r| {
-            Ok(OverrideRecord {
-                id: r.get(0)?,
-                caller_symbol: r.get(1)?,
-                callee_symbol: r.get(2)?,
-                ref_kind: r.get(3)?,
-                confidence: r.get(4)?,
-                reason: r.get(5)?,
-                created_at: r.get(6)?,
-                updated_at: r.get(7)?,
+        let rows = stmt
+            .query_map(rusqlite::params![symbol], |r| {
+                Ok(OverrideRecord {
+                    id: r.get(0)?,
+                    caller_symbol: r.get(1)?,
+                    callee_symbol: r.get(2)?,
+                    ref_kind: r.get(3)?,
+                    confidence: r.get(4)?,
+                    reason: r.get(5)?,
+                    created_at: r.get(6)?,
+                    updated_at: r.get(7)?,
+                })
             })
-        })
-        .context("query overrides_for_symbol")?;
-        rows.collect::<Result<Vec<_>, _>>().context("collect overrides_for_symbol")
+            .context("query overrides_for_symbol")?;
+        rows.collect::<Result<Vec<_>, _>>()
+            .context("collect overrides_for_symbol")
     }
 }
 
 #[cfg(test)]
 mod qualified_name_tests {
     use super::*;
-    
+
     #[test]
     fn test_module_name_from_path() {
         assert_eq!(SymbolRecord::module_name_from_path("auth.py"), "auth");
         assert_eq!(SymbolRecord::module_name_from_path("session.py"), "session");
         assert_eq!(SymbolRecord::module_name_from_path("src/auth.py"), "auth");
-        assert_eq!(SymbolRecord::module_name_from_path("src/session.py"), "session");
-        assert_eq!(SymbolRecord::module_name_from_path("lib/session.py"), "session");
+        assert_eq!(
+            SymbolRecord::module_name_from_path("src/session.py"),
+            "session"
+        );
+        assert_eq!(
+            SymbolRecord::module_name_from_path("lib/session.py"),
+            "session"
+        );
     }
-    
+
     #[test]
     fn test_build_qualified_name() {
-        assert_eq!(SymbolRecord::build_qualified_name("auth.py", "login", &None), "auth.login");
-        assert_eq!(SymbolRecord::build_qualified_name("session.py", "create", &Some("Session".to_string())), "session.Session.create");
+        assert_eq!(
+            SymbolRecord::build_qualified_name("auth.py", "login", &None),
+            "auth.login"
+        );
+        assert_eq!(
+            SymbolRecord::build_qualified_name(
+                "session.py",
+                "create",
+                &Some("Session".to_string())
+            ),
+            "session.Session.create"
+        );
     }
 }

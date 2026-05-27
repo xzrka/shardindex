@@ -2,7 +2,6 @@
 ///
 /// Supports env var overrides and CLI defaults.  Config is loaded
 /// once at startup and cloned for daemon/MCP components.
-
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
@@ -337,8 +336,8 @@ pub fn load_config(root: &Path) -> Result<Config> {
     let content = std::fs::read_to_string(&config_path)
         .context(format!("Read config file: {}", config_path.display()))?;
 
-    let config: Config = toml::from_str(&content)
-        .context(format!("Parse config: {}", config_path.display()))?;
+    let config: Config =
+        toml::from_str(&content).context(format!("Parse config: {}", config_path.display()))?;
 
     Ok(config)
 }

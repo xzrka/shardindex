@@ -1,22 +1,21 @@
 /// MCP (Model Context Protocol) 서버 — JSON-RPC over HTTP
 ///
 /// 노출 API: read, neighbors, impact, search, graph, stats, edit_plan, verify
-
 pub mod stdio;
 
 use axum::{
+    Json, Router,
     extract::State,
     http::StatusCode,
     routing::{get, post},
-    Json, Router,
 };
 use serde::{Deserialize, Serialize};
 use std::sync::{Arc, Mutex};
 use tracing::info;
 
-use crate::database::IndexDb;
 use crate::agent_cache::AgentCache;
-use crate::token_budget::{enforce_budget, TokenBudgetedResponse};
+use crate::database::IndexDb;
+use crate::token_budget::{TokenBudgetedResponse, enforce_budget};
 
 /// MCP 서버 상태 (공유) — rusqlite Connection은 !Send이므로 Mutex로 감쌈
 #[derive(Clone)]
@@ -38,10 +37,7 @@ fn get_token_budget(params: &serde_json::Value) -> Option<usize> {
 
 /// Apply token budget enforcement to a result JSON, wrapping in TokenBudgetedResponse if needed.
 /// Returns the final JSON to send as the MCP result.
-fn apply_budget(
-    result: serde_json::Value,
-    budget: Option<usize>,
-) -> serde_json::Value {
+fn apply_budget(result: serde_json::Value, budget: Option<usize>) -> serde_json::Value {
     let (reduced, truncated, strategy) = match budget {
         Some(b) => enforce_budget(&result, b),
         None => (result.clone(), false, None),
@@ -66,7 +62,10 @@ fn apply_budget(
             let mut obj = match reduced {
                 serde_json::Value::Object(mut map) => {
                     map.insert("tokens_used".to_string(), serde_json::json!(tokens_used));
-                    map.insert("budget_remaining".to_string(), serde_json::json!(b.saturating_sub(tokens_used)));
+                    map.insert(
+                        "budget_remaining".to_string(),
+                        serde_json::json!(b.saturating_sub(tokens_used)),
+                    );
                     serde_json::Value::Object(map)
                 }
                 other => other,
@@ -139,10 +138,7 @@ fn get_id(params: &serde_json::Value) -> Option<serde_json::Value> {
 /// ─── MCP 메서드 핸들러 ───
 
 /// read — 파일의 심볼 목록 조회
-pub async fn handle_read(
-    params: serde_json::Value,
-    state: ServerState,
-) -> JsonRpcResponse {
+pub async fn handle_read(params: serde_json::Value, state: ServerState) -> JsonRpcResponse {
     let file_path = params.get("file").and_then(|v| v.as_str()).unwrap_or("");
     if file_path.is_empty() {
         return JsonRpcResponse::error(get_id(&params), -32601, "Missing 'file' parameter");
@@ -154,9 +150,8 @@ pub async fn handle_read(
     if let Some(cached) = state.cache.get("read", &params) {
         return JsonRpcResponse::success(
             get_id(&params),
-            serde_json::from_str(&cached).unwrap_or_else(|_| {
-                serde_json::json!({"cache_error": true, "raw": cached})
-            }),
+            serde_json::from_str(&cached)
+                .unwrap_or_else(|_| serde_json::json!({"cache_error": true, "raw": cached})),
         );
     }
 
@@ -173,19 +168,14 @@ pub async fn handle_read(
             let _ = state.cache.set("read", &params, &result_str, None);
             budgeted_success(get_id(&params), result, budget)
         }
-        Err(e) => JsonRpcResponse::error(
-            get_id(&params),
-            -32603,
-            &format!("Database error: {}", e),
-        ),
+        Err(e) => {
+            JsonRpcResponse::error(get_id(&params), -32603, &format!("Database error: {}", e))
+        }
     }
 }
 
 /// neighbors — 심볼의 직접 참조 (caller/callee)
-pub async fn handle_neighbors(
-    params: serde_json::Value,
-    state: ServerState,
-) -> JsonRpcResponse {
+pub async fn handle_neighbors(params: serde_json::Value, state: ServerState) -> JsonRpcResponse {
     let symbol = params.get("symbol").and_then(|v| v.as_str()).unwrap_or("");
     if symbol.is_empty() {
         return JsonRpcResponse::error(get_id(&params), -32601, "Missing 'symbol' parameter");
@@ -197,9 +187,8 @@ pub async fn handle_neighbors(
     if let Some(cached) = state.cache.get("neighbors", &params) {
         return JsonRpcResponse::success(
             get_id(&params),
-            serde_json::from_str(&cached).unwrap_or_else(|_| {
-                serde_json::json!({"cache_error": true, "raw": cached})
-            }),
+            serde_json::from_str(&cached)
+                .unwrap_or_else(|_| serde_json::json!({"cache_error": true, "raw": cached})),
         );
     }
 
@@ -215,19 +204,14 @@ pub async fn handle_neighbors(
             let _ = state.cache.set("neighbors", &params, &result_str, None);
             budgeted_success(get_id(&params), result, budget)
         }
-        Err(e) => JsonRpcResponse::error(
-            get_id(&params),
-            -32603,
-            &format!("Database error: {}", e),
-        ),
+        Err(e) => {
+            JsonRpcResponse::error(get_id(&params), -32603, &format!("Database error: {}", e))
+        }
     }
 }
 
 /// impact — 심볼 영향도 분석 (수정 시 영향받는 범위)
-pub async fn handle_impact(
-    params: serde_json::Value,
-    state: ServerState,
-) -> JsonRpcResponse {
+pub async fn handle_impact(params: serde_json::Value, state: ServerState) -> JsonRpcResponse {
     let symbol = params.get("symbol").and_then(|v| v.as_str()).unwrap_or("");
     if symbol.is_empty() {
         return JsonRpcResponse::error(get_id(&params), -32601, "Missing 'symbol' parameter");
@@ -239,9 +223,8 @@ pub async fn handle_impact(
     if let Some(cached) = state.cache.get("impact", &params) {
         return JsonRpcResponse::success(
             get_id(&params),
-            serde_json::from_str(&cached).unwrap_or_else(|_| {
-                serde_json::json!({"cache_error": true, "raw": cached})
-            }),
+            serde_json::from_str(&cached)
+                .unwrap_or_else(|_| serde_json::json!({"cache_error": true, "raw": cached})),
         );
     }
 
@@ -258,19 +241,14 @@ pub async fn handle_impact(
             let _ = state.cache.set("impact", &params, &result_str, None);
             budgeted_success(get_id(&params), result, budget)
         }
-        Err(e) => JsonRpcResponse::error(
-            get_id(&params),
-            -32603,
-            &format!("Database error: {}", e),
-        ),
+        Err(e) => {
+            JsonRpcResponse::error(get_id(&params), -32603, &format!("Database error: {}", e))
+        }
     }
 }
 
 /// search — 심볼명 검색 (advanced: kind_filter, language_filter, fuzzy, min_score)
-pub async fn handle_search(
-    params: serde_json::Value,
-    state: ServerState,
-) -> JsonRpcResponse {
+pub async fn handle_search(params: serde_json::Value, state: ServerState) -> JsonRpcResponse {
     let query = params.get("query").and_then(|v| v.as_str()).unwrap_or("");
     if query.is_empty() {
         return JsonRpcResponse::error(get_id(&params), -32601, "Missing 'query' parameter");
@@ -282,44 +260,56 @@ pub async fn handle_search(
     if let Some(cached) = state.cache.get("search", &params) {
         return JsonRpcResponse::success(
             get_id(&params),
-            serde_json::from_str(&cached).unwrap_or_else(|_| {
-                serde_json::json!({"cache_error": true, "raw": cached})
-            }),
+            serde_json::from_str(&cached)
+                .unwrap_or_else(|_| serde_json::json!({"cache_error": true, "raw": cached})),
         );
     }
 
-    let kind_filter = params.get("kind").and_then(|v| v.as_str()).map(String::from);
-    let language_filter = params.get("language").and_then(|v| v.as_str()).map(String::from);
-    let min_score = params.get("min_score").and_then(|v| v.as_f64()).unwrap_or(0.1);
+    let kind_filter = params
+        .get("kind")
+        .and_then(|v| v.as_str())
+        .map(String::from);
+    let language_filter = params
+        .get("language")
+        .and_then(|v| v.as_str())
+        .map(String::from);
+    let min_score = params
+        .get("min_score")
+        .and_then(|v| v.as_f64())
+        .unwrap_or(0.1);
     let limit = params.get("limit").and_then(|v| v.as_u64()).unwrap_or(50) as usize;
-    let use_like = params.get("use_like").and_then(|v| v.as_bool()).unwrap_or(false);
+    let use_like = params
+        .get("use_like")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
 
     let db = state.db.lock().unwrap();
 
     // 파일 확장자 매핑 (language → extension)
-    let extension_filter = language_filter.as_ref().map(|lang| {
-        match lang.to_lowercase().as_str() {
-            "python" => "py",
-            "javascript" | "js" => "js",
-            "typescript" | "ts" => "ts",
-            "rust" | "rs" => "rs",
-            "go" => "go",
-            "ruby" | "rb" => "rb",
-            "java" => "java",
-            "php" => "php",
-            "julia" | "jl" => "jl",
-            "lua" => "lua",
-            "swift" => "swift",
-            "zig" => "zig",
-            "scala" => "scala",
-            "elixir" | "ex" => "ex",
-            "dart" => "dart",
-            "haskell" | "hs" => "hs",
-            "c" => "c",
-            "cpp" | "c++" => "cpp",
-            _ => lang.as_str(),
-        }
-    });
+    let extension_filter =
+        language_filter
+            .as_ref()
+            .map(|lang| match lang.to_lowercase().as_str() {
+                "python" => "py",
+                "javascript" | "js" => "js",
+                "typescript" | "ts" => "ts",
+                "rust" | "rs" => "rs",
+                "go" => "go",
+                "ruby" | "rb" => "rb",
+                "java" => "java",
+                "php" => "php",
+                "julia" | "jl" => "jl",
+                "lua" => "lua",
+                "swift" => "swift",
+                "zig" => "zig",
+                "scala" => "scala",
+                "elixir" | "ex" => "ex",
+                "dart" => "dart",
+                "haskell" | "hs" => "hs",
+                "c" => "c",
+                "cpp" | "c++" => "cpp",
+                _ => lang.as_str(),
+            });
 
     if use_like {
         // 빠른 LIKE 기반 검색 (fuzzy 비활성화)
@@ -379,26 +369,18 @@ pub async fn handle_search(
             let _ = state.cache.set("search", &params, &result_str, None);
             budgeted_success(get_id(&params), result, budget)
         }
-        Err(e) => JsonRpcResponse::error(
-            get_id(&params),
-            -32603,
-            &format!("Search error: {}", e),
-        ),
+        Err(e) => JsonRpcResponse::error(get_id(&params), -32603, &format!("Search error: {}", e)),
     }
 }
 
 /// stats — 인덱스 통계
-pub async fn handle_stats(
-    params: serde_json::Value,
-    state: ServerState,
-) -> JsonRpcResponse {
+pub async fn handle_stats(params: serde_json::Value, state: ServerState) -> JsonRpcResponse {
     // Cache check — stats is static so always cacheable
     if let Some(cached) = state.cache.get("stats", &params) {
         return JsonRpcResponse::success(
             get_id(&params),
-            serde_json::from_str(&cached).unwrap_or_else(|_| {
-                serde_json::json!({"cache_error": true, "raw": cached})
-            }),
+            serde_json::from_str(&cached)
+                .unwrap_or_else(|_| serde_json::json!({"cache_error": true, "raw": cached})),
         );
     }
 
@@ -414,11 +396,9 @@ pub async fn handle_stats(
             let _ = state.cache.set("stats", &params, &result_str, None);
             JsonRpcResponse::success(get_id(&params), result)
         }
-        Err(e) => JsonRpcResponse::error(
-            get_id(&params),
-            -32603,
-            &format!("Database error: {}", e),
-        ),
+        Err(e) => {
+            JsonRpcResponse::error(get_id(&params), -32603, &format!("Database error: {}", e))
+        }
     }
 }
 
@@ -430,17 +410,17 @@ pub async fn handle_stats(
 /// - add_param: { param, default_value? }
 /// - remove_param: { param }
 /// - change_return: { new_return }
-pub async fn handle_edit_plan(
-    params: serde_json::Value,
-    state: ServerState,
-) -> JsonRpcResponse {
+pub async fn handle_edit_plan(params: serde_json::Value, state: ServerState) -> JsonRpcResponse {
     let symbol = params.get("symbol").and_then(|v| v.as_str()).unwrap_or("");
     if symbol.is_empty() {
         return JsonRpcResponse::error(get_id(&params), -32601, "Missing 'symbol' parameter");
     }
 
     let empty: Vec<serde_json::Value> = vec![];
-    let changes_raw = params.get("changes").and_then(|v| v.as_array()).unwrap_or(&empty);
+    let changes_raw = params
+        .get("changes")
+        .and_then(|v| v.as_array())
+        .unwrap_or(&empty);
     let depth: u8 = params.get("depth").and_then(|v| v.as_u64()).unwrap_or(1) as u8;
 
     // Parse changes
@@ -454,26 +434,28 @@ pub async fn handle_edit_plan(
             "change_return" => crate::graph::EditChangeType::ChangeReturn,
             _ => continue,
         };
-        let details = ch.get("details")
+        let details = ch
+            .get("details")
             .and_then(|v| v.as_object())
             .cloned()
             .unwrap_or_default();
-        changes.push(crate::graph::EditChange { change_type, details });
+        changes.push(crate::graph::EditChange {
+            change_type,
+            details,
+        });
     }
 
     let db = state.db.lock().unwrap();
     match crate::graph::analyze_edit_plan(&db, symbol, &changes, depth) {
         Ok(result) => JsonRpcResponse::success(
             get_id(&params),
-            serde_json::to_value(result).unwrap_or_else(|_| {
-                serde_json::json!({ "error": "Failed to serialize edit plan result" })
-            }),
+            serde_json::to_value(result).unwrap_or_else(
+                |_| serde_json::json!({ "error": "Failed to serialize edit plan result" }),
+            ),
         ),
-        Err(e) => JsonRpcResponse::error(
-            get_id(&params),
-            -32603,
-            &format!("Edit plan error: {}", e),
-        ),
+        Err(e) => {
+            JsonRpcResponse::error(get_id(&params), -32603, &format!("Edit plan error: {}", e))
+        }
     }
 }
 
@@ -481,11 +463,11 @@ pub async fn handle_edit_plan(
 ///
 /// params: { file_path }
 /// Returns: { file_path, stored_hash, disk_hash, status }
-pub async fn handle_verify(
-    params: serde_json::Value,
-    state: ServerState,
-) -> JsonRpcResponse {
-    let file_path = params.get("file_path").and_then(|v| v.as_str()).unwrap_or("");
+pub async fn handle_verify(params: serde_json::Value, state: ServerState) -> JsonRpcResponse {
+    let file_path = params
+        .get("file_path")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
     if file_path.is_empty() {
         return JsonRpcResponse::error(get_id(&params), -32601, "Missing 'file_path' parameter");
     }
@@ -506,7 +488,11 @@ pub async fn handle_verify(
 
     let status = match (&stored_hash, &disk_hash) {
         (Some(sh), Some(dh)) => {
-            if sh == dh { "clean" } else { "dirty" }
+            if sh == dh {
+                "clean"
+            } else {
+                "dirty"
+            }
         }
         (None, Some(_)) => "unknown",
         (_, None) => "missing",
@@ -524,28 +510,44 @@ pub async fn handle_verify(
 }
 
 /// impact_deep — 다단계 전달 의존성 추적
-pub async fn handle_impact_deep(
-    params: serde_json::Value,
-    state: ServerState,
-) -> JsonRpcResponse {
+pub async fn handle_impact_deep(params: serde_json::Value, state: ServerState) -> JsonRpcResponse {
     let symbol = params.get("symbol").and_then(|v| v.as_str()).unwrap_or("");
     if symbol.is_empty() {
         return JsonRpcResponse::error(get_id(&params), -32601, "Missing 'symbol' parameter");
     }
 
     let depth: u8 = params.get("depth").and_then(|v| v.as_u64()).unwrap_or(3) as u8;
-    let include_tests: bool = params.get("include_tests").and_then(|v| v.as_bool()).unwrap_or(false);
-    let include_dynamic: bool =
-        params.get("include_dynamic").and_then(|v| v.as_bool()).unwrap_or(false);
-    let risk_analysis: bool =
-        params.get("risk_analysis").and_then(|v| v.as_bool()).unwrap_or(true);
-    let token_budget: Option<u32> = params.get("token_budget").and_then(|v| v.as_u64()).map(|v| v as u32);
+    let include_tests: bool = params
+        .get("include_tests")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    let include_dynamic: bool = params
+        .get("include_dynamic")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    let risk_analysis: bool = params
+        .get("risk_analysis")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(true);
+    let token_budget: Option<u32> = params
+        .get("token_budget")
+        .and_then(|v| v.as_u64())
+        .map(|v| v as u32);
 
     let db = state.db.lock().unwrap();
-    match crate::graph::impact_deep(&db, symbol, depth, include_tests, include_dynamic, risk_analysis, token_budget) {
+    match crate::graph::impact_deep(
+        &db,
+        symbol,
+        depth,
+        include_tests,
+        include_dynamic,
+        risk_analysis,
+        token_budget,
+    ) {
         Ok(result) => JsonRpcResponse::success(
             get_id(&params),
-            serde_json::to_value(result).unwrap_or_else(|_| serde_json::json!({ "error": "Failed to serialize result" })),
+            serde_json::to_value(result)
+                .unwrap_or_else(|_| serde_json::json!({ "error": "Failed to serialize result" })),
         ),
         Err(e) => JsonRpcResponse::error(
             get_id(&params),
@@ -566,16 +568,26 @@ pub async fn handle_dead_code_verify(
     }
 
     let empty: Vec<serde_json::Value> = vec![];
-    let stages_raw = params.get("stages").and_then(|v| v.as_array()).unwrap_or(&empty);
-    let stages: Vec<&str> = stages_raw.iter().filter_map(|v| v.as_str()).map(|s| s).collect();
-    let min_confidence: f64 =
-        params.get("min_confidence_for_deletion").and_then(|v| v.as_f64()).unwrap_or(0.8);
+    let stages_raw = params
+        .get("stages")
+        .and_then(|v| v.as_array())
+        .unwrap_or(&empty);
+    let stages: Vec<&str> = stages_raw
+        .iter()
+        .filter_map(|v| v.as_str())
+        .map(|s| s)
+        .collect();
+    let min_confidence: f64 = params
+        .get("min_confidence_for_deletion")
+        .and_then(|v| v.as_f64())
+        .unwrap_or(0.8);
 
     let db = state.db.lock().unwrap();
     match crate::graph::dead_code_verify(&db, symbol, &stages, min_confidence) {
         Ok(result) => JsonRpcResponse::success(
             get_id(&params),
-            serde_json::to_value(result).unwrap_or_else(|_| serde_json::json!({ "error": "Failed to serialize result" })),
+            serde_json::to_value(result)
+                .unwrap_or_else(|_| serde_json::json!({ "error": "Failed to serialize result" })),
         ),
         Err(e) => JsonRpcResponse::error(
             get_id(&params),
@@ -595,22 +607,44 @@ pub async fn handle_cross_module_move(
         return JsonRpcResponse::error(get_id(&params), -32601, "Missing 'symbol' parameter");
     }
 
-    let target_module =
-        params.get("target_module").and_then(|v| v.as_str()).unwrap_or("");
+    let target_module = params
+        .get("target_module")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
     if target_module.is_empty() {
-        return JsonRpcResponse::error(get_id(&params), -32601, "Missing 'target_module' parameter");
+        return JsonRpcResponse::error(
+            get_id(&params),
+            -32601,
+            "Missing 'target_module' parameter",
+        );
     }
 
-    let update_imports: bool = params.get("update_imports").and_then(|v| v.as_bool()).unwrap_or(true);
-    let update_string_refs: bool =
-        params.get("update_string_refs").and_then(|v| v.as_bool()).unwrap_or(false);
-    let dry_run: bool = params.get("dry_run").and_then(|v| v.as_bool()).unwrap_or(true);
+    let update_imports: bool = params
+        .get("update_imports")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(true);
+    let update_string_refs: bool = params
+        .get("update_string_refs")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    let dry_run: bool = params
+        .get("dry_run")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(true);
 
     let db = state.db.lock().unwrap();
-    match crate::graph::cross_module_move(&db, symbol, target_module, update_imports, update_string_refs, dry_run) {
+    match crate::graph::cross_module_move(
+        &db,
+        symbol,
+        target_module,
+        update_imports,
+        update_string_refs,
+        dry_run,
+    ) {
         Ok(result) => JsonRpcResponse::success(
             get_id(&params),
-            serde_json::to_value(result).unwrap_or_else(|_| serde_json::json!({ "error": "Failed to serialize result" })),
+            serde_json::to_value(result)
+                .unwrap_or_else(|_| serde_json::json!({ "error": "Failed to serialize result" })),
         ),
         Err(e) => JsonRpcResponse::error(
             get_id(&params),
@@ -630,20 +664,29 @@ pub async fn handle_signature_migration_check(
         return JsonRpcResponse::error(get_id(&params), -32601, "Missing 'symbol' parameter");
     }
 
-    let new_signature =
-        params.get("new_signature").and_then(|v| v.as_str()).unwrap_or("");
+    let new_signature = params
+        .get("new_signature")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
     if new_signature.is_empty() {
-        return JsonRpcResponse::error(get_id(&params), -32601, "Missing 'new_signature' parameter");
+        return JsonRpcResponse::error(
+            get_id(&params),
+            -32601,
+            "Missing 'new_signature' parameter",
+        );
     }
 
-    let check_call_sites: bool =
-        params.get("check_call_sites").and_then(|v| v.as_bool()).unwrap_or(true);
+    let check_call_sites: bool = params
+        .get("check_call_sites")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(true);
 
     let db = state.db.lock().unwrap();
     match crate::graph::signature_migration_check(&db, symbol, new_signature, check_call_sites) {
         Ok(result) => JsonRpcResponse::success(
             get_id(&params),
-            serde_json::to_value(result).unwrap_or_else(|_| serde_json::json!({ "error": "Failed to serialize result" })),
+            serde_json::to_value(result)
+                .unwrap_or_else(|_| serde_json::json!({ "error": "Failed to serialize result" })),
         ),
         Err(e) => JsonRpcResponse::error(
             get_id(&params),
@@ -655,9 +698,7 @@ pub async fn handle_signature_migration_check(
 
 /// ─── HTTP REST 핸들러 ───
 
-pub async fn rest_stats(
-    State(state): State<ServerState>,
-) -> (StatusCode, Json<serde_json::Value>) {
+pub async fn rest_stats(State(state): State<ServerState>) -> (StatusCode, Json<serde_json::Value>) {
     let db = state.db.lock().unwrap();
     match db.stats() {
         Ok((files, symbols, refs)) => (
@@ -703,8 +744,9 @@ pub async fn rest_search(
 
     // language → extension
     let ext_lang = language_filter.clone();
-    let extension_filter = ext_lang.as_ref().map(|lang| {
-        match lang.to_lowercase().as_str() {
+    let extension_filter = ext_lang
+        .as_ref()
+        .map(|lang| match lang.to_lowercase().as_str() {
             "python" => "py",
             "javascript" | "js" => "js",
             "typescript" | "ts" => "ts",
@@ -724,8 +766,7 @@ pub async fn rest_search(
             "c" => "c",
             "cpp" | "c++" => "cpp",
             _ => lang.as_str(),
-        }
-    });
+        });
 
     if !use_fuzzy {
         // LIKE 모드
@@ -768,12 +809,7 @@ pub async fn rest_search(
         ..Default::default()
     };
 
-    match crate::search::advanced_search(
-        &db,
-        &symbol,
-        extension_filter.as_deref(),
-        &config,
-    ) {
+    match crate::search::advanced_search(&db, &symbol, extension_filter.as_deref(), &config) {
         Ok(results) => (
             StatusCode::OK,
             Json(serde_json::json!({
@@ -835,7 +871,9 @@ pub async fn jsonrpc_handler(
         "shardindex.impact_deep" => handle_impact_deep(req.params, state).await,
         "shardindex.dead_code_verify" => handle_dead_code_verify(req.params, state).await,
         "shardindex.cross_module_move" => handle_cross_module_move(req.params, state).await,
-        "shardindex.signature_migration_check" => handle_signature_migration_check(req.params, state).await,
+        "shardindex.signature_migration_check" => {
+            handle_signature_migration_check(req.params, state).await
+        }
         unknown => JsonRpcResponse::error(
             req.id.clone(),
             -32601,
@@ -864,7 +902,9 @@ pub fn create_router(state: ServerState) -> Router {
 /// MCP 서버 시작
 pub async fn serve(state: ServerState, addr: &str) {
     let app = create_router(state);
-    let listener = tokio::net::TcpListener::bind(addr).await.expect("Bind failed");
+    let listener = tokio::net::TcpListener::bind(addr)
+        .await
+        .expect("Bind failed");
     info!("MCP server listening on {}", addr);
     axum::serve(listener, app).await.expect("Server error");
 }

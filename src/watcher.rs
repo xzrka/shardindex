@@ -3,16 +3,13 @@
 /// Automatically detects file language from extension and routes
 /// changes to the daemon's dirty queue.  Supports configurable
 /// debounce window, batch size, and ignored directories.
-
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use anyhow::Context;
-use notify::{
-    event::ModifyKind, Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher,
-};
+use notify::{Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher, event::ModifyKind};
 use tracing::{debug, info, warn};
 
 use crate::config::Config;
@@ -78,23 +75,20 @@ impl FileWatcher {
         let daemon_shared = daemon_ref.shared_state();
 
         // --- Event handler closure (runs in the notify thread) ---
-        let event_handler =
-            move |event_result: Result<Event, notify::Error>| {
-                match event_result {
-                    Ok(event) => handle_event_multi(
-                        &root_watch,
-                        &debounce_watch,
-                        &tx_watch,
-                        &daemon_shared,
-                        event,
-                        &ignore_dirs,
-                    ),
-                    Err(e) => warn!("Watch error: {}", e),
-                }
-            };
+        let event_handler = move |event_result: Result<Event, notify::Error>| match event_result {
+            Ok(event) => handle_event_multi(
+                &root_watch,
+                &debounce_watch,
+                &tx_watch,
+                &daemon_shared,
+                event,
+                &ignore_dirs,
+            ),
+            Err(e) => warn!("Watch error: {}", e),
+        };
 
-        let mut watcher = notify::recommended_watcher(event_handler)
-            .context("Failed to create file watcher")?;
+        let mut watcher =
+            notify::recommended_watcher(event_handler).context("Failed to create file watcher")?;
 
         watcher
             .watch(&self.root, RecursiveMode::Recursive)
@@ -334,11 +328,7 @@ fn reindex_auto_detect(
 }
 
 /// Polling fallback: re-index all files with auto-detection.
-pub fn poll_fallback(
-    db_path: &str,
-    root: &Path,
-    config: &Config,
-) -> anyhow::Result<()> {
+pub fn poll_fallback(db_path: &str, root: &Path, config: &Config) -> anyhow::Result<()> {
     // Walk all supported files
     use walkdir::WalkDir;
 

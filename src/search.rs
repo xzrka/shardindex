@@ -20,7 +20,6 @@
 /// 1. **Token matching**: query가 "_" 또는 camelCase boundary로 분리되어 token-level matching
 /// 2. **Levenshtein similarity**: edit distance 기반 유사도
 /// 3. **Prefix bonus**: query가 심볼명 prefix일 때 추가 보너스
-
 use crate::database::SymbolRecord;
 
 // ─── Levenshtein Distance ───
@@ -43,11 +42,7 @@ pub fn levenshtein_distance(a: &str, b: &str) -> usize {
     }
 
     // 공간 최적화: 행 두 개만 유지
-    let (short, long) = if m < n {
-        (m, n)
-    } else {
-        (n, m)
-    };
+    let (short, long) = if m < n { (m, n) } else { (n, m) };
     let short_chars = if m < n { &a_chars } else { &b_chars };
     let long_chars = if m < n { &b_chars } else { &a_chars };
 
@@ -66,7 +61,9 @@ pub fn levenshtein_distance(a: &str, b: &str) -> usize {
             } else {
                 1
             };
-            curr[si] = (prev[si] + 1).min(curr[si - 1] + 1).min(prev[si - 1] + cost);
+            curr[si] = (prev[si] + 1)
+                .min(curr[si - 1] + 1)
+                .min(prev[si - 1] + cost);
         }
         std::mem::swap(&mut prev, &mut curr);
     }
@@ -177,11 +174,7 @@ pub fn compute_fuzzy_score(query: &str, symbol_name: &str) -> f64 {
 
     // 너무 짧은 query에 대한 과도한 매칭 방지
     // query가 3자 이하일 때는 기준을 높임
-    if q.len() <= 2 {
-        lev * 0.5
-    } else {
-        lev
-    }
+    if q.len() <= 2 { lev * 0.5 } else { lev }
 }
 
 // ─── Search Result ───
@@ -330,7 +323,11 @@ pub fn advanced_search(
     }
 
     // 4. score 내림차순 정렬
-    results.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
+    results.sort_by(|a, b| {
+        b.score
+            .partial_cmp(&a.score)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
 
     // 5. limit
     results.truncate(config.limit);
@@ -459,7 +456,11 @@ mod tests {
     #[test]
     fn test_fuzzy_contains() {
         let score = compute_fuzzy_score("function", "my_function_name");
-        assert!(score >= 0.85, "Contains match should be >= 0.85, got {}", score);
+        assert!(
+            score >= 0.85,
+            "Contains match should be >= 0.85, got {}",
+            score
+        );
     }
 
     #[test]
@@ -486,7 +487,11 @@ mod tests {
     fn test_fuzzy_short_query_strict() {
         // 짧은 query에 대한 과도한 매칭 방지
         let score = compute_fuzzy_score("a", "some_function");
-        assert!(score < 0.5, "Short query should have low score, got {}", score);
+        assert!(
+            score < 0.5,
+            "Short query should have low score, got {}",
+            score
+        );
     }
 
     // ── Combined scoring ──

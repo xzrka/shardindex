@@ -1,6 +1,6 @@
 use crate::indexer::types::*;
-use tree_sitter::Node;
 use anyhow::Context;
+use tree_sitter::Node;
 
 pub struct RubyParser;
 
@@ -21,7 +21,9 @@ impl RubyParser {
             .set_language(&language)
             .context("Failed to load tree-sitter-ruby")?;
 
-        let tree = parser.parse(source, None).context("tree-sitter parse failed")?;
+        let tree = parser
+            .parse(source, None)
+            .context("tree-sitter parse failed")?;
         let root = tree.root_node();
         let source_bytes = source.as_bytes();
         let mut result = ParseResult {
@@ -34,12 +36,7 @@ impl RubyParser {
         Ok(result)
     }
 
-    fn walk_node(
-        node: &Node,
-        source: &[u8],
-        result: &mut ParseResult,
-        parent: Option<String>,
-    ) {
+    fn walk_node(node: &Node, source: &[u8], result: &mut ParseResult, parent: Option<String>) {
         let kind = node.kind();
 
         match kind {
@@ -62,28 +59,21 @@ impl RubyParser {
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
             let new_parent = match kind {
-                "class" | "singleton_class" => {
-                    node.child_by_field_name("name")
-                        .and_then(|n| n.utf8_text(source).ok())
-                        .map(|s| s.to_string())
-                }
-                "module" => {
-                    node.child_by_field_name("name")
-                        .and_then(|n| n.utf8_text(source).ok())
-                        .map(|s| s.to_string())
-                }
+                "class" | "singleton_class" => node
+                    .child_by_field_name("name")
+                    .and_then(|n| n.utf8_text(source).ok())
+                    .map(|s| s.to_string()),
+                "module" => node
+                    .child_by_field_name("name")
+                    .and_then(|n| n.utf8_text(source).ok())
+                    .map(|s| s.to_string()),
                 _ => parent.clone(),
             };
             Self::walk_node(&child, source, result, new_parent);
         }
     }
 
-    fn extract_method(
-        node: &Node,
-        source: &[u8],
-        result: &mut ParseResult,
-        parent: Option<&str>,
-    ) {
+    fn extract_method(node: &Node, source: &[u8], result: &mut ParseResult, parent: Option<&str>) {
         let name_node = node.child_by_field_name("name");
         let Some(name) = name_node.and_then(|n| n.utf8_text(source).ok()) else {
             return;
@@ -115,12 +105,7 @@ impl RubyParser {
         });
     }
 
-    fn extract_class(
-        node: &Node,
-        source: &[u8],
-        result: &mut ParseResult,
-        parent: Option<&str>,
-    ) {
+    fn extract_class(node: &Node, source: &[u8], result: &mut ParseResult, parent: Option<&str>) {
         let name_node = node.child_by_field_name("name");
         let Some(name) = name_node.and_then(|n| n.utf8_text(source).ok()) else {
             return;
@@ -163,12 +148,7 @@ impl RubyParser {
         }
     }
 
-    fn extract_module(
-        node: &Node,
-        source: &[u8],
-        result: &mut ParseResult,
-        parent: Option<&str>,
-    ) {
+    fn extract_module(node: &Node, source: &[u8], result: &mut ParseResult, parent: Option<&str>) {
         let name_node = node.child_by_field_name("name");
         let Some(name) = name_node.and_then(|n| n.utf8_text(source).ok()) else {
             return;
@@ -192,15 +172,15 @@ impl RubyParser {
     fn extract_require(node: &Node, source: &[u8], result: &mut ParseResult) {
         // Ruby: arguments field exists, callee is first named child
         let arg = node.child_by_field_name("arguments");
-        let path = arg.and_then(|a| a.named_child(0)).and_then(|n| n.utf8_text(source).ok());
+        let path = arg
+            .and_then(|a| a.named_child(0))
+            .and_then(|n| n.utf8_text(source).ok());
         if let Some(raw) = path {
             let cleaned = raw.trim_matches('"').trim_matches('\'').to_string();
             if !cleaned.is_empty() {
-                result.imports.push((
-                    cleaned.clone(),
-                    cleaned.clone(),
-                    "require".to_string(),
-                ));
+                result
+                    .imports
+                    .push((cleaned.clone(), cleaned.clone(), "require".to_string()));
                 result.references.push(ParsedReference {
                     caller_symbol: None,
                     callee_symbol: cleaned,
@@ -219,7 +199,10 @@ impl RubyParser {
             // Handle require/require_relative as imports
             if callee == "require" || callee == "require_relative" {
                 let arg = node.child_by_field_name("arguments");
-                if let Some(path) = arg.and_then(|a| a.named_child(0)).and_then(|n| n.utf8_text(source).ok()) {
+                if let Some(path) = arg
+                    .and_then(|a| a.named_child(0))
+                    .and_then(|n| n.utf8_text(source).ok())
+                {
                     let cleaned = path.trim_matches('"').trim_matches('\'').to_string();
                     if !cleaned.is_empty() {
                         result.imports.push((

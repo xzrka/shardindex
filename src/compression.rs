@@ -19,7 +19,6 @@
 /// let compressed = compress_symbol(source, 1, 1, CompressionLevel::SignatureOnly);
 /// assert!(!compressed.signature.is_empty());
 /// ```
-
 use crate::token_estimation::estimate_token_count;
 
 // ─── Compression Level ───
@@ -57,7 +56,9 @@ impl std::str::FromStr for CompressionLevel {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s.to_lowercase().as_str() {
             "signature_only" | "signatureonly" | "sig" | "s" => Ok(CompressionLevel::SignatureOnly),
-            "critical_branches" | "criticalbranches" | "crit" | "c" => Ok(CompressionLevel::CriticalBranches),
+            "critical_branches" | "criticalbranches" | "crit" | "c" => {
+                Ok(CompressionLevel::CriticalBranches)
+            }
             "full_body" | "fullbody" | "full" | "f" => Ok(CompressionLevel::FullBody),
             other => {
                 // Try parsing "token_budgeted(N)" or "budget(N)" or just a number
@@ -161,14 +162,32 @@ pub fn compress_symbol(
             let return_stmt = extract_return_statement(&body);
 
             // Build the compressed text for token estimation
-            let compressed_text = build_critical_text(&signature, &branches, &side_effects, &key_assignments, &return_stmt);
+            let compressed_text = build_critical_text(
+                &signature,
+                &branches,
+                &side_effects,
+                &key_assignments,
+                &return_stmt,
+            );
             let tokens = estimate_token_count(&compressed_text);
 
             CompressedSymbol {
                 signature,
-                critical_branches: if branches.is_empty() { None } else { Some(branches) },
-                side_effects: if side_effects.is_empty() { None } else { Some(side_effects) },
-                key_assignments: if key_assignments.is_empty() { None } else { Some(key_assignments) },
+                critical_branches: if branches.is_empty() {
+                    None
+                } else {
+                    Some(branches)
+                },
+                side_effects: if side_effects.is_empty() {
+                    None
+                } else {
+                    Some(side_effects)
+                },
+                key_assignments: if key_assignments.is_empty() {
+                    None
+                } else {
+                    Some(key_assignments)
+                },
                 return_statement: return_stmt,
                 full_body: None,
                 estimated_tokens: tokens,
@@ -194,11 +213,7 @@ pub fn compress_symbol(
 }
 
 /// Compress with a token budget — try levels from highest to lowest fidelity.
-fn compress_with_budget(
-    body: &str,
-    signature: &str,
-    budget: usize,
-) -> CompressedSymbol {
+fn compress_with_budget(body: &str, signature: &str, budget: usize) -> CompressedSymbol {
     // Try FullBody first
     let full_tokens = estimate_token_count(body);
     if full_tokens <= budget {
@@ -219,15 +234,33 @@ fn compress_with_budget(
     let side_effects = extract_side_effects(body);
     let key_assignments = extract_key_assignments(body);
     let return_stmt = extract_return_statement(body);
-    let compressed_text = build_critical_text(signature, &branches, &side_effects, &key_assignments, &return_stmt);
+    let compressed_text = build_critical_text(
+        signature,
+        &branches,
+        &side_effects,
+        &key_assignments,
+        &return_stmt,
+    );
     let critical_tokens = estimate_token_count(&compressed_text);
 
     if critical_tokens <= budget {
         return CompressedSymbol {
             signature: signature.to_string(),
-            critical_branches: if branches.is_empty() { None } else { Some(branches) },
-            side_effects: if side_effects.is_empty() { None } else { Some(side_effects) },
-            key_assignments: if key_assignments.is_empty() { None } else { Some(key_assignments) },
+            critical_branches: if branches.is_empty() {
+                None
+            } else {
+                Some(branches)
+            },
+            side_effects: if side_effects.is_empty() {
+                None
+            } else {
+                Some(side_effects)
+            },
+            key_assignments: if key_assignments.is_empty() {
+                None
+            } else {
+                Some(key_assignments)
+            },
             return_statement: return_stmt,
             full_body: None,
             estimated_tokens: critical_tokens,
@@ -264,9 +297,14 @@ fn extract_signature(body: &str) -> String {
         }
 
         // Skip comments
-        if trimmed.starts_with("//") || trimmed.starts_with("#") || trimmed.starts_with("/*")
-            || trimmed.starts_with("*") || trimmed.starts_with("///") || trimmed.starts_with("//!")
-            || trimmed.starts_with("'''") || trimmed.starts_with("\"\"\"")
+        if trimmed.starts_with("//")
+            || trimmed.starts_with("#")
+            || trimmed.starts_with("/*")
+            || trimmed.starts_with("*")
+            || trimmed.starts_with("///")
+            || trimmed.starts_with("//!")
+            || trimmed.starts_with("'''")
+            || trimmed.starts_with("\"\"\"")
         {
             continue;
         }
@@ -283,7 +321,10 @@ fn extract_signature(body: &str) -> String {
 
         return trimmed.to_string();
     }
-    body.lines().next().map(|l| l.trim().to_string()).unwrap_or_default()
+    body.lines()
+        .next()
+        .map(|l| l.trim().to_string())
+        .unwrap_or_default()
 }
 
 // ─── Critical Branches Extraction ───
@@ -353,7 +394,10 @@ fn extract_critical_branches(body: &str) -> Vec<String> {
 
 /// Check if a line is a conditional statement.
 fn is_conditional_line(line: &str) -> bool {
-    let trimmed = line.trim().strip_prefix(|c: char| c == '\t' || c == ' ').unwrap_or(line);
+    let trimmed = line
+        .trim()
+        .strip_prefix(|c: char| c == '\t' || c == ' ')
+        .unwrap_or(line);
 
     // if/else/elif/elseif/match/switch/case
     trimmed.starts_with("if ")
@@ -374,7 +418,10 @@ fn is_conditional_line(line: &str) -> bool {
 
 /// Check if a line is a loop statement.
 fn is_loop_line(line: &str) -> bool {
-    let trimmed = line.trim().strip_prefix(|c: char| c == '\t' || c == ' ').unwrap_or(line);
+    let trimmed = line
+        .trim()
+        .strip_prefix(|c: char| c == '\t' || c == ' ')
+        .unwrap_or(line);
 
     trimmed.starts_with("for ")
         || trimmed.starts_with("for(")
@@ -389,7 +436,10 @@ fn is_loop_line(line: &str) -> bool {
 
 /// Check if a line is error handling (try/catch/except/raise/panic).
 fn is_error_handling_line(line: &str) -> bool {
-    let trimmed = line.trim().strip_prefix(|c: char| c == '\t' || c == ' ').unwrap_or(line);
+    let trimmed = line
+        .trim()
+        .strip_prefix(|c: char| c == '\t' || c == ' ')
+        .unwrap_or(line);
 
     trimmed.starts_with("try ")
         || trimmed.starts_with("try {")
@@ -425,10 +475,7 @@ fn simplify_line(line: &str) -> String {
     let trimmed = line.trim();
 
     // Remove leading/trailing braces
-    let without_braces = trimmed
-        .trim_start_matches('{')
-        .trim_end_matches('}')
-        .trim();
+    let without_braces = trimmed.trim_start_matches('{').trim_end_matches('}').trim();
 
     // Remove trailing semicolons and commas for cleaner output
     let cleaned = without_braces
@@ -438,10 +485,7 @@ fn simplify_line(line: &str) -> String {
         .to_string();
 
     // Collapse multiple spaces
-    cleaned
-        .split_whitespace()
-        .collect::<Vec<&str>>()
-        .join(" ")
+    cleaned.split_whitespace().collect::<Vec<&str>>().join(" ")
 }
 
 // ─── Side Effects Extraction ───
@@ -599,7 +643,9 @@ fn extract_return_statement(body: &str) -> Option<String> {
     for line in body.lines() {
         let trimmed = line.trim();
 
-        if trimmed.starts_with("return ") || trimmed == "return" || trimmed.starts_with("return{")
+        if trimmed.starts_with("return ")
+            || trimmed == "return"
+            || trimmed.starts_with("return{")
             || trimmed.starts_with("return {")
             || trimmed.starts_with("yield ")
             || trimmed.starts_with("yield from ")
@@ -759,7 +805,11 @@ while x > 0 {
     else:
         return True"#;
         let branches = extract_critical_branches(body);
-        assert!(branches.len() >= 3, "Should find if/elif/else branches, got {}", branches.len());
+        assert!(
+            branches.len() >= 3,
+            "Should find if/elif/else branches, got {}",
+            branches.len()
+        );
     }
 
     #[test]
@@ -778,7 +828,10 @@ while x > 0 {
     42
 }"#;
         let branches = extract_critical_branches(body);
-        assert!(branches.is_empty(), "Simple function should have no critical branches");
+        assert!(
+            branches.is_empty(),
+            "Simple function should have no critical branches"
+        );
     }
 
     // ── Side effects ──
@@ -822,7 +875,10 @@ while x > 0 {
     x + y
 }"#;
         let effects = extract_side_effects(body);
-        assert!(effects.is_empty(), "Pure function should have no side effects");
+        assert!(
+            effects.is_empty(),
+            "Pure function should have no side effects"
+        );
     }
 
     // ── Key assignments ──
@@ -858,7 +914,10 @@ err := doSomething()"#;
 let count = 0;
 var old = true;"#;
         let assignments = extract_key_assignments(body);
-        assert!(assignments.len() >= 2, "Should find JS const/let/var assignments");
+        assert!(
+            assignments.len() >= 2,
+            "Should find JS const/let/var assignments"
+        );
     }
 
     // ── Return statement ──
@@ -1001,7 +1060,10 @@ pub fn new(max_size: usize) -> Self {
 }"#;
         let a = compress_symbol(source, 1, 3, CompressionLevel::FullBody);
         let b = compress_symbol(source, 1, 3, CompressionLevel::FullBody);
-        assert_eq!(a.estimated_tokens, b.estimated_tokens, "Compression should be deterministic");
+        assert_eq!(
+            a.estimated_tokens, b.estimated_tokens,
+            "Compression should be deterministic"
+        );
     }
 
     // ── Helper function tests ──
@@ -1073,9 +1135,11 @@ pub fn new(max_size: usize) -> Self {
             "critical_branches"
         );
         assert_eq!(CompressionLevel::FullBody.to_string(), "full_body");
-        assert!(CompressionLevel::TokenBudgeted(100)
-            .to_string()
-            .contains("100"));
+        assert!(
+            CompressionLevel::TokenBudgeted(100)
+                .to_string()
+                .contains("100")
+        );
     }
 
     #[test]
@@ -1116,7 +1180,11 @@ fn real() -> i32 {
 }"#;
         let branches = extract_critical_branches(body);
         // Multi-line comment content should not produce false positives
-        assert!(branches.is_empty(), "Multi-line comment should not produce branches, got {:?}", branches);
+        assert!(
+            branches.is_empty(),
+            "Multi-line comment should not produce branches, got {:?}",
+            branches
+        );
     }
 
     #[test]
@@ -1137,7 +1205,11 @@ fn real() -> i32 {
         assert!(compressed.critical_branches.is_some());
         let branches = compressed.critical_branches.unwrap();
         // Should find for, if, elif, else
-        assert!(branches.len() >= 3, "Should find multiple branches, got {}", branches.len());
+        assert!(
+            branches.len() >= 3,
+            "Should find multiple branches, got {}",
+            branches.len()
+        );
 
         assert!(compressed.side_effects.is_some());
         assert!(compressed.key_assignments.is_some());
@@ -1148,34 +1220,82 @@ fn real() -> i32 {
 
     #[test]
     fn test_fromstr_signature_only_aliases() {
-        assert_eq!("signature_only".parse::<CompressionLevel>().unwrap(), CompressionLevel::SignatureOnly);
-        assert_eq!("signatureonly".parse::<CompressionLevel>().unwrap(), CompressionLevel::SignatureOnly);
-        assert_eq!("sig".parse::<CompressionLevel>().unwrap(), CompressionLevel::SignatureOnly);
-        assert_eq!("s".parse::<CompressionLevel>().unwrap(), CompressionLevel::SignatureOnly);
-        assert_eq!("SIG".parse::<CompressionLevel>().unwrap(), CompressionLevel::SignatureOnly);
+        assert_eq!(
+            "signature_only".parse::<CompressionLevel>().unwrap(),
+            CompressionLevel::SignatureOnly
+        );
+        assert_eq!(
+            "signatureonly".parse::<CompressionLevel>().unwrap(),
+            CompressionLevel::SignatureOnly
+        );
+        assert_eq!(
+            "sig".parse::<CompressionLevel>().unwrap(),
+            CompressionLevel::SignatureOnly
+        );
+        assert_eq!(
+            "s".parse::<CompressionLevel>().unwrap(),
+            CompressionLevel::SignatureOnly
+        );
+        assert_eq!(
+            "SIG".parse::<CompressionLevel>().unwrap(),
+            CompressionLevel::SignatureOnly
+        );
     }
 
     #[test]
     fn test_fromstr_critical_branches_aliases() {
-        assert_eq!("critical_branches".parse::<CompressionLevel>().unwrap(), CompressionLevel::CriticalBranches);
-        assert_eq!("criticalbranches".parse::<CompressionLevel>().unwrap(), CompressionLevel::CriticalBranches);
-        assert_eq!("crit".parse::<CompressionLevel>().unwrap(), CompressionLevel::CriticalBranches);
-        assert_eq!("c".parse::<CompressionLevel>().unwrap(), CompressionLevel::CriticalBranches);
+        assert_eq!(
+            "critical_branches".parse::<CompressionLevel>().unwrap(),
+            CompressionLevel::CriticalBranches
+        );
+        assert_eq!(
+            "criticalbranches".parse::<CompressionLevel>().unwrap(),
+            CompressionLevel::CriticalBranches
+        );
+        assert_eq!(
+            "crit".parse::<CompressionLevel>().unwrap(),
+            CompressionLevel::CriticalBranches
+        );
+        assert_eq!(
+            "c".parse::<CompressionLevel>().unwrap(),
+            CompressionLevel::CriticalBranches
+        );
     }
 
     #[test]
     fn test_fromstr_full_body_aliases() {
-        assert_eq!("full_body".parse::<CompressionLevel>().unwrap(), CompressionLevel::FullBody);
-        assert_eq!("fullbody".parse::<CompressionLevel>().unwrap(), CompressionLevel::FullBody);
-        assert_eq!("full".parse::<CompressionLevel>().unwrap(), CompressionLevel::FullBody);
-        assert_eq!("f".parse::<CompressionLevel>().unwrap(), CompressionLevel::FullBody);
+        assert_eq!(
+            "full_body".parse::<CompressionLevel>().unwrap(),
+            CompressionLevel::FullBody
+        );
+        assert_eq!(
+            "fullbody".parse::<CompressionLevel>().unwrap(),
+            CompressionLevel::FullBody
+        );
+        assert_eq!(
+            "full".parse::<CompressionLevel>().unwrap(),
+            CompressionLevel::FullBody
+        );
+        assert_eq!(
+            "f".parse::<CompressionLevel>().unwrap(),
+            CompressionLevel::FullBody
+        );
     }
 
     #[test]
     fn test_fromstr_token_budgeted() {
-        assert_eq!("token_budgeted(100)".parse::<CompressionLevel>().unwrap(), CompressionLevel::TokenBudgeted(100));
-        assert_eq!("budget(500)".parse::<CompressionLevel>().unwrap(), CompressionLevel::TokenBudgeted(500));
-        assert_eq!("200".parse::<CompressionLevel>().unwrap(), CompressionLevel::TokenBudgeted(200));
+        assert_eq!(
+            "token_budgeted(100)".parse::<CompressionLevel>().unwrap(),
+            CompressionLevel::TokenBudgeted(100)
+        );
+        assert_eq!(
+            "budget(500)".parse::<CompressionLevel>().unwrap(),
+            CompressionLevel::TokenBudgeted(500)
+        );
+        assert_eq!(
+            "200".parse::<CompressionLevel>().unwrap(),
+            CompressionLevel::TokenBudgeted(200)
+        );
     }
 
     #[test]
@@ -1207,7 +1327,8 @@ fn real() -> i32 {
     #[test]
     fn test_symbol_slice_alias() {
         // SymbolSlice is an alias for CompressedSymbol
-        let slice: SymbolSlice = compress_symbol("fn hello() {}", 1, 1, CompressionLevel::SignatureOnly);
+        let slice: SymbolSlice =
+            compress_symbol("fn hello() {}", 1, 1, CompressionLevel::SignatureOnly);
         assert!(!slice.signature.is_empty());
         assert_eq!(slice.compression_used, "signature_only");
 

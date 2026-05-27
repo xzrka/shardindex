@@ -8,7 +8,6 @@
 /// 1. **Degree Centrality**: in_degree (callee로서 참조 횟수) + out_degree (caller로서 참조 횟수)
 /// 2. **PageRank**: 반복적 PageRank (damping factor=0.85, max_iter=100, tolerance=1e-6)
 /// 3. **Combined Score**: 가중 합산 (PageRank × 0.7 + normalized_degree × 0.3)
-
 use std::collections::HashMap;
 
 use crate::database::IndexDb;
@@ -37,7 +36,11 @@ pub fn symbol_dot(db: &IndexDb, symbol: &str) -> Result<String, anyhow::Error> {
 
         // 중복 노드 방지
         if caller != symbol {
-            dot.push_str(&format!("  \"{}\" [label=\"{}\"];\n", sanitize(caller), caller));
+            dot.push_str(&format!(
+                "  \"{}\" [label=\"{}\"];\n",
+                sanitize(caller),
+                caller
+            ));
         }
         if ref_rec.callee_symbol != symbol {
             dot.push_str(&format!(
@@ -88,10 +91,7 @@ pub fn full_dot(db: &IndexDb) -> Result<String, anyhow::Error> {
     for file_hash in &db.all_file_hashes()? {
         if let Ok(syms) = db.file_symbols(&file_hash.path) {
             for sym in &syms {
-                let label = format!(
-                    "{}\\n[{}] L{}",
-                    sym.name, sym.kind, sym.start_line
-                );
+                let label = format!("{}\\n[{}] L{}", sym.name, sym.kind, sym.start_line);
                 dot.push_str(&format!(
                     "  \"{}::{}\" [label=\"{}\"];\n",
                     sanitize(&file_hash.path),
@@ -108,8 +108,8 @@ pub fn full_dot(db: &IndexDb) -> Result<String, anyhow::Error> {
 
 fn sanitize(s: &str) -> String {
     s.replace('"', "\\\"")
-      .replace('\n', "\\n")
-      .replace(' ', "_")
+        .replace('\n', "\\n")
+        .replace(' ', "_")
 }
 
 // ─── PageRank Algorithm ───
@@ -218,10 +218,7 @@ pub fn compute_pagerank(edges: &[(String, String)], config: &PageRankConfig) -> 
         let mut new_ranks = vec![0.0_f64; n];
 
         // Dangling nodes 처리: out_degree=0인 노드의 rank 합
-        let dangling_sum: f64 = (0..n)
-            .filter(|&i| out_deg[i] == 0)
-            .map(|i| ranks[i])
-            .sum();
+        let dangling_sum: f64 = (0..n).filter(|&i| out_deg[i] == 0).map(|i| ranks[i]).sum();
 
         for i in 0..n {
             // Teleport + dangling 분배
@@ -265,7 +262,10 @@ pub fn compute_pagerank(edges: &[(String, String)], config: &PageRankConfig) -> 
 /// 2. PageRank 계산
 /// 3. 정규화 후 결합 스코어 계산
 /// 4. DB에 저장
-pub fn compute_and_store_ranks(db: &IndexDb, config: Option<&PageRankConfig>) -> anyhow::Result<()> {
+pub fn compute_and_store_ranks(
+    db: &IndexDb,
+    config: Option<&PageRankConfig>,
+) -> anyhow::Result<()> {
     let config = config.cloned().unwrap_or_default();
 
     // 기존 랭킹 초기화
@@ -426,10 +426,7 @@ pub fn analyze_edit_plan(
                             symbol: caller.name.clone(),
                             file_path: caller.file_path.clone(),
                             change_type: "rename".to_string(),
-                            description: format!(
-                                "Update reference from '{}' to '{}'",
-                                from, to
-                            ),
+                            description: format!("Update reference from '{}' to '{}'", from, to),
                         });
                     }
                 }
@@ -445,10 +442,7 @@ pub fn analyze_edit_plan(
                         symbol: caller.name.clone(),
                         file_path: caller.file_path.clone(),
                         change_type: "add_param".to_string(),
-                        description: format!(
-                            "Caller must add parameter '{}' to call site",
-                            param
-                        ),
+                        description: format!("Caller must add parameter '{}' to call site", param),
                     });
                 }
             }
@@ -503,8 +497,8 @@ pub fn analyze_edit_plan(
     let estimated_tokens = (affected_symbols.len() * 50) as u32;
 
     // Safe to proceed if no breaking changes or only rename changes
-    let safe_to_proceed = breaking_changes.is_empty()
-        || breaking_changes.iter().all(|bc| bc.change_type == "rename");
+    let safe_to_proceed =
+        breaking_changes.is_empty() || breaking_changes.iter().all(|bc| bc.change_type == "rename");
 
     Ok(EditPlanResult {
         affected_symbols,
@@ -654,7 +648,9 @@ pub fn impact_deep(
 
             for caller in &callers {
                 // Skip test files if not included
-                if !include_tests && (caller.file_path.contains("test") || caller.file_path.contains("_spec")) {
+                if !include_tests
+                    && (caller.file_path.contains("test") || caller.file_path.contains("_spec"))
+                {
                     continue;
                 }
 
@@ -669,7 +665,11 @@ pub fn impact_deep(
                 for ref_rec in &refs {
                     if ref_rec.is_dynamic && !visited.contains(&ref_rec.callee_symbol) {
                         dynamic_refs_at_risk.push(DynamicRefAtRisk {
-                            expr: format!("{}.{}", ref_rec.caller_symbol.as_deref().unwrap_or("?"), ref_rec.callee_symbol),
+                            expr: format!(
+                                "{}.{}",
+                                ref_rec.caller_symbol.as_deref().unwrap_or("?"),
+                                ref_rec.callee_symbol
+                            ),
                             confidence: ref_rec.confidence,
                             file: ref_rec.caller_file.clone(),
                         });
@@ -726,15 +726,14 @@ pub fn impact_deep(
     for layer in &layers {
         if layer.depth >= 2 {
             for sym_name in &layer.symbols {
-                let (test_callers, _) = db.impact(sym_name).unwrap_or_else(|_| (Vec::new(), Vec::new()));
-                let has_tests = test_callers.iter().any(|c| {
-                    c.file_path.contains("test") || c.file_path.contains("_spec")
-                });
+                let (test_callers, _) = db
+                    .impact(sym_name)
+                    .unwrap_or_else(|_| (Vec::new(), Vec::new()));
+                let has_tests = test_callers
+                    .iter()
+                    .any(|c| c.file_path.contains("test") || c.file_path.contains("_spec"));
                 if !has_tests {
-                    test_coverage_gaps.push(format!(
-                        "{} has 0 direct tests",
-                        sym_name
-                    ));
+                    test_coverage_gaps.push(format!("{} has 0 direct tests", sym_name));
                 }
             }
         }
@@ -787,7 +786,9 @@ pub fn dead_code_verify(
 
     // Stage 1: static_refs — check for static callers in DB
     if stages.is_empty() || stages.contains(&"static_refs") {
-        let (callers, _) = db.impact(symbol).unwrap_or_else(|_| (Vec::new(), Vec::new()));
+        let (callers, _) = db
+            .impact(symbol)
+            .unwrap_or_else(|_| (Vec::new(), Vec::new()));
         let caller_names: Vec<String> = callers.iter().map(|c| c.name.clone()).collect();
 
         if caller_names.is_empty() {
@@ -828,10 +829,7 @@ pub fn dead_code_verify(
         let dynamic_matches: Vec<String> = neighbors
             .iter()
             .filter(|r| r.is_dynamic)
-            .map(|r| format!(
-                "{} (confidence: {:.1})",
-                r.caller_file, r.confidence
-            ))
+            .map(|r| format!("{} (confidence: {:.1})", r.caller_file, r.confidence))
             .collect();
 
         if dynamic_matches.is_empty() {
@@ -942,7 +940,9 @@ pub fn dead_code_verify(
 
     // Stage 5: test_refs — check if any tests reference this symbol
     if stages.contains(&"test_refs") {
-        let (callers, _) = db.impact(symbol).unwrap_or_else(|_| (Vec::new(), Vec::new()));
+        let (callers, _) = db
+            .impact(symbol)
+            .unwrap_or_else(|_| (Vec::new(), Vec::new()));
         let test_refs: Vec<String> = callers
             .iter()
             .filter(|c| c.file_path.contains("test") || c.file_path.contains("_spec"))
@@ -1007,7 +1007,8 @@ fn resolve_target_file_path(
     source_file: &str,
 ) -> String {
     // Detect project language
-    let language = db.detect_project_language()
+    let language = db
+        .detect_project_language()
         .or_else(|| db.detect_language_from_path(source_file))
         .unwrap_or_else(|| "python".to_string());
 
@@ -1040,14 +1041,31 @@ fn resolve_target_file_path(
         // Rust: src/module/mod.rs
         "rust" => format!("src/{}/mod.rs", target_module.replace('.', "/")),
         // Go: module/file.go (lowercase module name)
-        "go" => format!("{}/{}.go", target_module.replace('.', "/"), target_module.split('.').last().unwrap_or(target_module)),
+        "go" => format!(
+            "{}/{}.go",
+            target_module.replace('.', "/"),
+            target_module.split('.').last().unwrap_or(target_module)
+        ),
         // Java: module/file.java (package-style path)
-        "java" => format!("{}/{}.java", target_module.replace('.', "/"), target_module.split('.').last().unwrap_or(target_module)),
+        "java" => format!(
+            "{}/{}.java",
+            target_module.replace('.', "/"),
+            target_module.split('.').last().unwrap_or(target_module)
+        ),
         // C/C++: include/module/file.h or src/module/file.cpp
         "c" => format!("include/{}.h", target_module.replace('.', "/")),
-        "cpp" => format!("src/{}/{}.cpp", target_module.replace('.', "/"), target_module.split('.').last().unwrap_or(target_module)),
+        "cpp" => format!(
+            "src/{}/{}.cpp",
+            target_module.replace('.', "/"),
+            target_module.split('.').last().unwrap_or(target_module)
+        ),
         // Python/JS/TS/Ruby/PHP/Julia/Lua/Swift/Zig/Scala/Elixir/Dart/Haskell: module/file.ext
-        _ => format!("{}/{}.{}", target_module.replace('.', "/"), target_module.split('.').last().unwrap_or(target_module), ext),
+        _ => format!(
+            "{}/{}.{}",
+            target_module.replace('.', "/"),
+            target_module.split('.').last().unwrap_or(target_module),
+            ext
+        ),
     }
 }
 
@@ -1095,7 +1113,9 @@ pub fn cross_module_move(
     });
 
     // Get all callers and generate import update actions
-    let (callers, _) = db.impact(symbol).unwrap_or_else(|_| (Vec::new(), Vec::new()));
+    let (callers, _) = db
+        .impact(symbol)
+        .unwrap_or_else(|_| (Vec::new(), Vec::new()));
 
     if update_imports {
         for caller in &callers {
@@ -1125,7 +1145,10 @@ pub fn cross_module_move(
             unresolved_refs.push(UnresolvedRef {
                 file: ref_rec.caller_file.clone(),
                 ref_type: "dynamic_ref".to_string(),
-                value: format!("Dynamic reference with confidence {:.1}", ref_rec.confidence),
+                value: format!(
+                    "Dynamic reference with confidence {:.1}",
+                    ref_rec.confidence
+                ),
             });
         }
     }
@@ -1176,7 +1199,9 @@ pub fn signature_migration_check(
     let current_sig = current_sym.signature.as_deref().unwrap_or("");
 
     // Get all callers
-    let (callers, _) = db.impact(symbol).unwrap_or_else(|_| (Vec::new(), Vec::new()));
+    let (callers, _) = db
+        .impact(symbol)
+        .unwrap_or_else(|_| (Vec::new(), Vec::new()));
 
     // Parse parameter counts from signatures (simplified heuristic)
     let old_params = count_params(current_sig);
@@ -1304,10 +1329,7 @@ mod tests {
     #[test]
     fn test_pagerank_simple_chain() {
         // A → B → C (선형 체인)
-        let edges = [
-            ("A".into(), "B".into()),
-            ("B".into(), "C".into()),
-        ];
+        let edges = [("A".into(), "B".into()), ("B".into(), "C".into())];
         let config = PageRankConfig::default();
         let result = compute_pagerank(&edges, &config);
 
@@ -1323,7 +1345,11 @@ mod tests {
 
         // 총합은 1.0
         let total = a + b + c;
-        assert!((total - 1.0).abs() < 1e-6, "PageRank sum should be 1.0, got {}", total);
+        assert!(
+            (total - 1.0).abs() < 1e-6,
+            "PageRank sum should be 1.0, got {}",
+            total
+        );
     }
 
     #[test]
@@ -1379,9 +1405,7 @@ mod tests {
     #[test]
     fn test_pagerank_single_self_loop() {
         // A → A (셀프 루프)
-        let edges = [
-            ("A".into(), "A".into()),
-        ];
+        let edges = [("A".into(), "A".into())];
         let config = PageRankConfig::default();
         let result = compute_pagerank(&edges, &config);
 
@@ -1392,10 +1416,7 @@ mod tests {
     #[test]
     fn test_pagerank_two_disconnected() {
         // A → B, C → D (두 개의 분리된 컴포넌트)
-        let edges = [
-            ("A".into(), "B".into()),
-            ("C".into(), "D".into()),
-        ];
+        let edges = [("A".into(), "B".into()), ("C".into(), "D".into())];
         let config = PageRankConfig::default();
         let result = compute_pagerank(&edges, &config);
 
@@ -1510,10 +1531,7 @@ mod tests {
             main
         );
         // auth.login도 중간 허브
-        assert!(
-            auth_login > 0.1,
-            "auth.login should have meaningful rank"
-        );
+        assert!(auth_login > 0.1, "auth.login should have meaningful rank");
     }
 
     // ─── Phase 9 Helper Function Tests ───

@@ -1,4 +1,4 @@
-use criterion::{black_box, criterion_group, criterion_main, Criterion};
+use criterion::{Criterion, black_box, criterion_group, criterion_main};
 use shardindex::database::{IndexDb, ReferenceRecord, SymbolRecord};
 
 fn make_symbol(name: &str) -> SymbolRecord {

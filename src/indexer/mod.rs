@@ -1,63 +1,62 @@
+mod r#c;
+mod cpp;
+mod dart;
+mod elixir;
+mod r#go;
+mod haskell;
+mod java;
+mod javascript;
+mod julia;
+mod lua;
+mod markdown;
+mod php;
+mod python;
+mod ruby;
+mod r#rust;
+mod scala;
+mod swift;
+#[cfg(test)]
+mod tests;
+mod r#typecript;
 /// Indexer engine — file scan → Blake3 hash → AST parsing → DB storage
 ///
 /// Incremental indexing: only reparse changed files. Supports multiple languages.
-
 // Module declarations — each language parser in its own file
 pub mod types;
-mod python;
-mod javascript;
-mod r#rust;
-mod r#typecript;
-mod r#go;
-mod ruby;
-mod java;
-mod php;
-mod julia;
-mod lua;
-mod swift;
 mod zig;
-mod scala;
-mod elixir;
-mod dart;
-mod haskell;
-mod r#c;
-mod cpp;
-mod markdown;
-#[cfg(test)]
-mod tests;
 
 // Re-export types for convenience and test access
 #[allow(unused_imports)]
-pub use types::{SymbolKind, ParsedSymbol, ParsedReference, ParseResult, SourceCodeParser};
+pub use types::{ParseResult, ParsedReference, ParsedSymbol, SourceCodeParser, SymbolKind};
 // Re-export language parsers
-pub use python::PythonParser;
-pub use javascript::JavaScriptParser;
-pub use r#rust::RustParser;
-pub use r#typecript::TypeScriptParser;
-pub use r#go::GoParser;
-pub use ruby::RubyParser;
-pub use java::JavaParser;
-pub use php::PhpParser;
-pub use julia::JuliaParser;
-pub use lua::LuaParser;
-pub use swift::SwiftParser;
-pub use zig::ZigParser;
-pub use scala::ScalaParser;
-pub use elixir::ElixirParser;
-pub use dart::DartParser;
-pub use haskell::HaskellParser;
 pub use r#c::CParser;
 pub use cpp::CppParser;
+pub use dart::DartParser;
+pub use elixir::ElixirParser;
+pub use r#go::GoParser;
+pub use haskell::HaskellParser;
+pub use java::JavaParser;
+pub use javascript::JavaScriptParser;
+pub use julia::JuliaParser;
+pub use lua::LuaParser;
 pub use markdown::MarkdownParser;
+pub use php::PhpParser;
+pub use python::PythonParser;
+pub use ruby::RubyParser;
+pub use r#rust::RustParser;
+pub use scala::ScalaParser;
+pub use swift::SwiftParser;
+pub use r#typecript::TypeScriptParser;
+pub use zig::ZigParser;
 
+use anyhow::Context;
 use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
-use anyhow::Context;
-use tracing::{info, debug, warn};
+use tracing::{debug, info, warn};
 
 use crate::database::{IndexDb, SymbolRecord};
-use crate::token_estimation::{estimate_token_count, estimate_symbol_tokens};
+use crate::token_estimation::{estimate_symbol_tokens, estimate_token_count};
 
 /// Supported language parsers
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -281,12 +280,21 @@ impl ProjectIndexer {
     /// Create a new indexer
     pub fn new(db: IndexDb, root: PathBuf, language: Language) -> Result<Self, anyhow::Error> {
         let parser = language.create_parser()?;
-        Ok(Self { db, root, language, parser })
+        Ok(Self {
+            db,
+            root,
+            language,
+            parser,
+        })
     }
 
     /// Full project indexing (initial) — single language
     pub fn index_all(&mut self) -> Result<(usize, usize, usize), anyhow::Error> {
-        info!("Indexing project at {} ({})", self.root.display(), self.language.as_str());
+        info!(
+            "Indexing project at {} ({})",
+            self.root.display(),
+            self.language.as_str()
+        );
 
         let files = self.scan_files()?;
         let mut symbols = 0;
@@ -309,7 +317,9 @@ impl ProjectIndexer {
 
         info!(
             "Indexing complete: {} files, {} symbols, {} references",
-            files.len(), symbols, refs
+            files.len(),
+            symbols,
+            refs
         );
 
         Ok((files.len(), symbols, refs))
@@ -334,11 +344,7 @@ impl ProjectIndexer {
         let all_files: Vec<PathBuf> = lang_files.values().flatten().cloned().collect();
 
         for (lang, files) in lang_files {
-            info!(
-                "Indexing {} files as {}",
-                files.len(),
-                lang.as_str()
-            );
+            info!("Indexing {} files as {}", files.len(), lang.as_str());
 
             // Create a temporary indexer for this language
             let mut lang_indexer = ProjectIndexer::new(self.db.clone(), self.root.clone(), lang)?;
@@ -369,7 +375,10 @@ impl ProjectIndexer {
 
         info!(
             "Multi-language indexing complete: {} files, {} symbols, {} references across {} languages",
-            summary.total_files, summary.total_symbols, summary.total_refs, summary.languages.len()
+            summary.total_files,
+            summary.total_symbols,
+            summary.total_refs,
+            summary.languages.len()
         );
 
         Ok(summary)
@@ -384,8 +393,7 @@ impl ProjectIndexer {
             .to_string();
 
         // Compute Blake3 hash
-        let content = fs::read_to_string(path)
-            .context(format!("Read file: {}", path.display()))?;
+        let content = fs::read_to_string(path).context(format!("Read file: {}", path.display()))?;
         let hash = blake3::hash(content.as_bytes()).to_hex().to_string();
         let size = content.len() as u64;
 
@@ -407,7 +415,9 @@ impl ProjectIndexer {
             }
             debug!(
                 "{} changed ({:?} -> {:?}), reindexing",
-                relative, &old_hash[..8], &hash[..8]
+                relative,
+                &old_hash[..8],
+                &hash[..8]
             );
         }
 
@@ -424,7 +434,8 @@ impl ProjectIndexer {
         // Store symbols
         let mut symbol_count = 0;
         for sym in &result.symbols {
-            let qualified_name = SymbolRecord::build_qualified_name(&relative, &sym.name, &sym.parent);
+            let qualified_name =
+                SymbolRecord::build_qualified_name(&relative, &sym.name, &sym.parent);
             let token_count = estimate_symbol_tokens(&content, sym.start_line, sym.end_line);
             let _id = self.db.insert_symbol(&SymbolRecord {
                 id: 0,
@@ -446,20 +457,21 @@ impl ProjectIndexer {
 
         // Store references
         let mut ref_count = 0;
-       for ref_rec in &result.references {
+        for ref_rec in &result.references {
             let conf = ref_rec.confidence();
             let is_dynamic = conf < 1.0;
-            self.db.insert_reference(&crate::database::ReferenceRecord {
-                id: 0,
-                caller_file: relative.clone(),
-                callee_file: relative.clone(),
-                caller_symbol: ref_rec.caller_symbol.clone(),
-                callee_symbol: ref_rec.callee_symbol.clone(),
-                ref_kind: ref_rec.ref_kind.clone(),
-                line: ref_rec.line,
-                confidence: conf,
-                is_dynamic,
-            })?;
+            self.db
+                .insert_reference(&crate::database::ReferenceRecord {
+                    id: 0,
+                    caller_file: relative.clone(),
+                    callee_file: relative.clone(),
+                    caller_symbol: ref_rec.caller_symbol.clone(),
+                    callee_symbol: ref_rec.callee_symbol.clone(),
+                    ref_kind: ref_rec.ref_kind.clone(),
+                    line: ref_rec.line,
+                    confidence: conf,
+                    is_dynamic,
+                })?;
             ref_count += 1;
         }
 
@@ -503,8 +515,18 @@ impl ProjectIndexer {
             if path.is_dir() {
                 // Skip directories
                 let skip = [
-                    ".git", "__pycache__", ".venv", "venv", "node_modules", ".mypy_cache",
-                    ".tox", ".eggs", "dist", "build", ".next", ".nuxt",
+                    ".git",
+                    "__pycache__",
+                    ".venv",
+                    "venv",
+                    "node_modules",
+                    ".mypy_cache",
+                    ".tox",
+                    ".eggs",
+                    "dist",
+                    "build",
+                    ".next",
+                    ".nuxt",
                 ];
                 if path
                     .file_name()
@@ -537,8 +559,20 @@ impl ProjectIndexer {
 
             if path.is_dir() {
                 let skip = [
-                    ".git", "__pycache__", ".venv", "venv", "node_modules", ".mypy_cache",
-                    ".tox", ".eggs", "dist", "build", ".next", ".nuxt", "target", ".shardindex",
+                    ".git",
+                    "__pycache__",
+                    ".venv",
+                    "venv",
+                    "node_modules",
+                    ".mypy_cache",
+                    ".tox",
+                    ".eggs",
+                    "dist",
+                    "build",
+                    ".next",
+                    ".nuxt",
+                    "target",
+                    ".shardindex",
                 ];
                 if path
                     .file_name()
@@ -547,9 +581,11 @@ impl ProjectIndexer {
                     continue;
                 }
                 self.walk_all_supported(&path, lang_files)?;
-            } else if let Some(lang) = path.extension().and_then(|e| e.to_str()).and_then(|ext| {
-                Language::from_extension(&format!(".{}", ext))
-            }) {
+            } else if let Some(lang) = path
+                .extension()
+                .and_then(|e| e.to_str())
+                .and_then(|ext| Language::from_extension(&format!(".{}", ext)))
+            {
                 lang_files.entry(lang).or_insert_with(Vec::new).push(path);
             }
         }

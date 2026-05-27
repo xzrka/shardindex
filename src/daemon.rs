@@ -3,7 +3,6 @@
 /// Implements the Idle → Dirty → Parsing → Persist → UpdateRefs state
 /// machine described in masterplan §7.1.  Coordinates file watcher,
 /// dirty queue processing, and crash recovery.
-
 use std::collections::{HashMap, VecDeque};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
@@ -102,10 +101,7 @@ impl DaemonSharedState {
 
     pub fn set_state(&mut self, new_state: DaemonState) {
         if self.state != new_state {
-            debug!(
-                "State transition: {} → {}",
-                self.state, new_state
-            );
+            debug!("State transition: {} → {}", self.state, new_state);
             self.state = new_state;
             self.last_transition = Instant::now();
         }
@@ -171,7 +167,10 @@ impl Daemon {
         });
 
         self.handle = Some(handle);
-        info!("Daemon started (debounce={}ms, batch={})", debounce_ms, max_batch);
+        info!(
+            "Daemon started (debounce={}ms, batch={})",
+            debounce_ms, max_batch
+        );
         Ok(())
     }
 
@@ -204,7 +203,9 @@ impl Daemon {
         }
 
         if let Some(handle) = self.handle.take() {
-            handle.join().map_err(|e| anyhow::anyhow!("Daemon join error: {:?}", e))?;
+            handle
+                .join()
+                .map_err(|e| anyhow::anyhow!("Daemon join error: {:?}", e))?;
         }
 
         info!("Daemon stopped");
@@ -341,11 +342,7 @@ fn process_batch(
 }
 
 /// Process remaining dirty files before shutdown
-fn process_remaining_batch(
-    root: &Path,
-    config: &Config,
-    shared: &Arc<Mutex<DaemonSharedState>>,
-) {
+fn process_remaining_batch(root: &Path, config: &Config, shared: &Arc<Mutex<DaemonSharedState>>) {
     let events = {
         let mut state = shared.lock().unwrap();
         let events = state.drain_dirty();
@@ -355,7 +352,10 @@ fn process_remaining_batch(
         events
     };
 
-    info!("Processing {} remaining files before shutdown", events.len());
+    info!(
+        "Processing {} remaining files before shutdown",
+        events.len()
+    );
 
     for event in &events {
         let _ = process_single_file(root, config, event);
@@ -375,11 +375,7 @@ fn process_remaining_batch(
 /// 3. Insert new symbols/refs
 /// 4. Update file hash and timestamp
 /// 5. Remove from dirty queue
-fn process_single_file(
-    root: &Path,
-    config: &Config,
-    event: &DirtyEvent,
-) -> Result<(usize, usize)> {
+fn process_single_file(root: &Path, config: &Config, event: &DirtyEvent) -> Result<(usize, usize)> {
     let path = &event.path;
 
     match event.event_type {
@@ -421,8 +417,8 @@ fn process_single_file(
         .to_string_lossy()
         .to_string();
 
-    let db = IndexDb::open(&config.db_path)
-        .context(format!("Open DB for reindex: {}", relative))?;
+    let db =
+        IndexDb::open(&config.db_path).context(format!("Open DB for reindex: {}", relative))?;
 
     let mut indexer = ProjectIndexer::new(db, root.to_path_buf(), language)
         .context(format!("Create indexer for {}", relative))?;
@@ -434,7 +430,10 @@ fn process_single_file(
 
     debug!(
         "Processed {}: {} symbols, {} refs [{}]",
-        relative, symbols, refs, language.as_str()
+        relative,
+        symbols,
+        refs,
+        language.as_str()
     );
 
     Ok((symbols, refs))
@@ -510,10 +509,7 @@ mod tests {
         let config = crate::config::Config::default();
         let mut daemon = Daemon::new(PathBuf::from("/tmp"), config);
 
-        daemon.add_dirty_event(
-            PathBuf::from("/tmp/test.py"),
-            DirtyEventType::Modified,
-        );
+        daemon.add_dirty_event(PathBuf::from("/tmp/test.py"), DirtyEventType::Modified);
 
         assert_eq!(daemon.state(), DaemonState::Dirty);
     }

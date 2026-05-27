@@ -36,7 +36,13 @@ impl LuaParser {
         Ok(result)
     }
 
-    fn walk_node(node: &Node, source: &[u8], result: &mut ParseResult, parent: Option<String>, current_function: Option<String>) {
+    fn walk_node(
+        node: &Node,
+        source: &[u8],
+        result: &mut ParseResult,
+        parent: Option<String>,
+        current_function: Option<String>,
+    ) {
         let kind = node.kind();
 
         match kind {
@@ -71,7 +77,12 @@ impl LuaParser {
         }
     }
 
-    fn extract_function(node: &Node, source: &[u8], result: &mut ParseResult, parent: Option<&str>) {
+    fn extract_function(
+        node: &Node,
+        source: &[u8],
+        result: &mut ParseResult,
+        parent: Option<&str>,
+    ) {
         let name = node
             .child_by_field_name("name")
             .and_then(|n| n.utf8_text(source).ok())
@@ -99,7 +110,12 @@ impl LuaParser {
         });
     }
 
-    fn extract_local_function(node: &Node, source: &[u8], result: &mut ParseResult, parent: Option<&str>) {
+    fn extract_local_function(
+        node: &Node,
+        source: &[u8],
+        result: &mut ParseResult,
+        parent: Option<&str>,
+    ) {
         let name = node
             .child_by_field_name("name")
             .and_then(|n| n.utf8_text(source).ok())
@@ -151,13 +167,21 @@ impl LuaParser {
         }
     }
 
-    fn extract_assignment(node: &Node, source: &[u8], result: &mut ParseResult, parent: Option<&str>) {
+    fn extract_assignment(
+        node: &Node,
+        source: &[u8],
+        result: &mut ParseResult,
+        parent: Option<&str>,
+    ) {
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
             if child.kind() == "identifier" && child.is_named() {
                 if let Ok(name) = child.utf8_text(source) {
                     // Only top-level assignments
-                    if node.parent().map_or(false, |p| p.kind() == "chunk" || p.kind() == "do_block") {
+                    if node
+                        .parent()
+                        .map_or(false, |p| p.kind() == "chunk" || p.kind() == "do_block")
+                    {
                         result.symbols.push(ParsedSymbol {
                             name: name.to_string(),
                             kind: SymbolKind::Variable,
@@ -183,7 +207,8 @@ impl LuaParser {
                 // treat require() as import
                 if callee == "require" {
                     let args = node.child_by_field_name("arguments");
-                    if let Some(arg_text) = args.and_then(|a| a.named_child(0))
+                    if let Some(arg_text) = args
+                        .and_then(|a| a.named_child(0))
                         .and_then(|n| n.utf8_text(source).ok())
                     {
                         let mod_name = arg_text.trim_matches('"').trim_matches('\'').to_string();

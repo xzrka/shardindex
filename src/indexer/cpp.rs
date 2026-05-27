@@ -36,7 +36,13 @@ impl CppParser {
         Ok(result)
     }
 
-    fn walk_node(node: &Node, source: &[u8], result: &mut ParseResult, parent: Option<String>, current_function: Option<String>) {
+    fn walk_node(
+        node: &Node,
+        source: &[u8],
+        result: &mut ParseResult,
+        parent: Option<String>,
+        current_function: Option<String>,
+    ) {
         let kind = node.kind();
 
         match kind {
@@ -83,26 +89,33 @@ impl CppParser {
                 _ => parent.clone(),
             };
             let new_function = match child.kind() {
-                "function_definition" => child
-                    .child_by_field_name("declarator")
-                    .and_then(|decl_node| {
-                        let mut d_cursor = decl_node.walk();
-                        for d_child in decl_node.children(&mut d_cursor) {
-                            if d_child.kind() == "identifier" {
-                                if let Ok(name) = d_child.utf8_text(source) {
-                                    return Some(name.to_string());
+                "function_definition" => {
+                    child
+                        .child_by_field_name("declarator")
+                        .and_then(|decl_node| {
+                            let mut d_cursor = decl_node.walk();
+                            for d_child in decl_node.children(&mut d_cursor) {
+                                if d_child.kind() == "identifier" {
+                                    if let Ok(name) = d_child.utf8_text(source) {
+                                        return Some(name.to_string());
+                                    }
                                 }
                             }
-                        }
-                        None
-                    }),
+                            None
+                        })
+                }
                 _ => current_function.clone(),
             };
             Self::walk_node(&child, source, result, new_parent, new_function);
         }
     }
 
-    fn extract_function(node: &Node, source: &[u8], result: &mut ParseResult, parent: Option<&str>) {
+    fn extract_function(
+        node: &Node,
+        source: &[u8],
+        result: &mut ParseResult,
+        parent: Option<&str>,
+    ) {
         let declarator = node.child_by_field_name("declarator");
         let Some(decl_text) = declarator.and_then(|n| n.utf8_text(source).ok()) else {
             return;
@@ -142,7 +155,6 @@ impl CppParser {
             docstring: None,
             parent: parent.map(|s| s.to_string()),
         });
-
     }
 
     fn extract_function_name(declarator: &str) -> Option<String> {
@@ -155,7 +167,9 @@ impl CppParser {
                 return Some(name);
             }
         }
-        let name = decl.split(|c: char| !c.is_alphanumeric() && c != '_').find(|s| !s.is_empty())?;
+        let name = decl
+            .split(|c: char| !c.is_alphanumeric() && c != '_')
+            .find(|s| !s.is_empty())?;
         Some(name.to_string())
     }
 
@@ -254,11 +268,9 @@ impl CppParser {
             .and_then(|n| n.utf8_text(source).ok())
             .map(|s| s.trim_start_matches("::").to_string());
         if let Some(name) = namespace {
-            result.imports.push((
-                name.clone(),
-                name.clone(),
-                "using".to_string(),
-            ));
+            result
+                .imports
+                .push((name.clone(), name.clone(), "using".to_string()));
             result.references.push(ParsedReference {
                 caller_symbol: None,
                 callee_symbol: name,
@@ -271,13 +283,15 @@ impl CppParser {
     fn extract_include(node: &Node, source: &[u8], result: &mut ParseResult) {
         let path_node = node.child_by_field_name("path");
         if let Some(path) = path_node.and_then(|n| n.utf8_text(source).ok()) {
-            let cleaned = path.trim_matches('"').trim_matches('<').trim_matches('>').to_string();
+            let cleaned = path
+                .trim_matches('"')
+                .trim_matches('<')
+                .trim_matches('>')
+                .to_string();
             if !cleaned.is_empty() {
-                result.imports.push((
-                    cleaned.clone(),
-                    cleaned.clone(),
-                    "include".to_string(),
-                ));
+                result
+                    .imports
+                    .push((cleaned.clone(), cleaned.clone(), "include".to_string()));
                 result.references.push(ParsedReference {
                     caller_symbol: None,
                     callee_symbol: cleaned,
@@ -288,7 +302,12 @@ impl CppParser {
         }
     }
 
-    fn extract_namespace(node: &Node, source: &[u8], result: &mut ParseResult, parent: Option<&str>) {
+    fn extract_namespace(
+        node: &Node,
+        source: &[u8],
+        result: &mut ParseResult,
+        parent: Option<&str>,
+    ) {
         let name = node
             .child_by_field_name("name")
             .and_then(|n| n.utf8_text(source).ok())
@@ -308,7 +327,12 @@ impl CppParser {
         }
     }
 
-    fn extract_namespace_def(node: &Node, source: &[u8], result: &mut ParseResult, parent: Option<&str>) {
+    fn extract_namespace_def(
+        node: &Node,
+        source: &[u8],
+        result: &mut ParseResult,
+        parent: Option<&str>,
+    ) {
         let name = node
             .child_by_field_name("name")
             .and_then(|n| n.utf8_text(source).ok())

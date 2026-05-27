@@ -61,7 +61,8 @@ impl ZigParser {
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
             let new_parent = match kind {
-                "struct_declaration" | "opaque_declaration" | "union_declaration" | "enum_declaration" => node
+                "struct_declaration" | "opaque_declaration" | "union_declaration"
+                | "enum_declaration" => node
                     .child_by_field_name("name")
                     .and_then(|n| n.utf8_text(source).ok())
                     .map(|s| s.to_string()),
@@ -71,7 +72,12 @@ impl ZigParser {
         }
     }
 
-    fn extract_function(node: &Node, source: &[u8], result: &mut ParseResult, parent: Option<&str>) {
+    fn extract_function(
+        node: &Node,
+        source: &[u8],
+        result: &mut ParseResult,
+        parent: Option<&str>,
+    ) {
         let name = node
             .child_by_field_name("name")
             .and_then(|n| n.utf8_text(source).ok())
@@ -101,12 +107,14 @@ impl ZigParser {
 
     fn extract_type(node: &Node, source: &[u8], result: &mut ParseResult, parent: Option<&str>) {
         // Zig: struct_declaration has no name field. Parent variable_declaration's 1st named child is identifier.
-        let name = node.parent().and_then(|p| {
-            // variable_declaration -> named_child(0) is identifier (User)
-            p.named_child(0)
-        })
-        .and_then(|n| n.utf8_text(source).ok())
-        .map(|s| s.to_string());
+        let name = node
+            .parent()
+            .and_then(|p| {
+                // variable_declaration -> named_child(0) is identifier (User)
+                p.named_child(0)
+            })
+            .and_then(|n| n.utf8_text(source).ok())
+            .map(|s| s.to_string());
         let Some(name) = name else {
             return;
         };
@@ -158,11 +166,9 @@ impl ZigParser {
             .and_then(|n| n.utf8_text(source).ok())
             .map(|s| s.to_string());
         if let Some(name) = name {
-            result.imports.push((
-                name.clone(),
-                name.clone(),
-                "usingnamespace".to_string(),
-            ));
+            result
+                .imports
+                .push((name.clone(), name.clone(), "usingnamespace".to_string()));
             result.references.push(ParsedReference {
                 caller_symbol: None,
                 callee_symbol: name,

@@ -4,7 +4,6 @@
 /// if the daemon crashes mid-batch, it can replay or compensate
 /// on restart.  The journal lives in .shardindex/journal.jsonl
 /// and is flushed to disk before each DB commit.
-
 use std::fs::{File, OpenOptions};
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
@@ -103,14 +102,12 @@ impl RecoveryJournal {
     /// Ensure the journal file exists and load the sequence counter
     fn ensure(&self) -> Result<()> {
         if let Some(parent) = self.journal_path.parent() {
-            std::fs::create_dir_all(parent)
-                .context("Create journal directory")?;
+            std::fs::create_dir_all(parent).context("Create journal directory")?;
         }
 
         // Load last sequence number
         if self.journal_path.exists() {
-            let file = File::open(&self.journal_path)
-                .context("Open journal file")?;
+            let file = File::open(&self.journal_path).context("Open journal file")?;
             let reader = BufReader::new(file);
 
             let mut max_seq: u64 = 0;
@@ -167,8 +164,7 @@ impl RecoveryJournal {
             return Ok(Vec::new());
         }
 
-        let file = File::open(&self.journal_path)
-            .context("Open journal file")?;
+        let file = File::open(&self.journal_path).context("Open journal file")?;
         let reader = BufReader::new(file);
 
         let mut entries = Vec::new();
@@ -190,8 +186,7 @@ impl RecoveryJournal {
         let _lock = self.lock.lock().unwrap();
 
         if self.journal_path.exists() {
-            std::fs::write(&self.journal_path, "")
-                .context("Truncate journal file")?;
+            std::fs::write(&self.journal_path, "").context("Truncate journal file")?;
         }
 
         let mut seq = self.seq.lock().unwrap();
@@ -207,8 +202,7 @@ impl RecoveryJournal {
         let archive = self.journal_path.with_extension("jsonl.archive");
 
         if self.journal_path.exists() {
-            std::fs::rename(&self.journal_path, &archive)
-                .context("Rotate journal")?;
+            std::fs::rename(&self.journal_path, &archive).context("Rotate journal")?;
         }
 
         let mut seq = self.seq.lock().unwrap();
@@ -316,20 +310,14 @@ impl RecoveryEngine {
                     match Self::reindex_file(root, config, &entry.file_path) {
                         Ok(_) => recovered += 1,
                         Err(e) => {
-                            warn!(
-                                "Recovery: {} — re-index failed: {}",
-                                entry.file_path, e
-                            );
+                            warn!("Recovery: {} — re-index failed: {}", entry.file_path, e);
                             errors += 1;
                         }
                     }
                 }
                 // File doesn't exist → skip
                 (None, _) => {
-                    debug!(
-                        "Recovery: {} — file removed, skipping",
-                        entry.file_path
-                    );
+                    debug!("Recovery: {} — file removed, skipping", entry.file_path);
                     skipped += 1;
                 }
             }
@@ -373,10 +361,7 @@ impl RecoveryEngine {
     }
 
     /// Start the daemon with journal entries queued for recovery
-    pub fn start_with_recovery(
-        root: &Path,
-        config: &Config,
-    ) -> Result<(Daemon, RecoveryReport)> {
+    pub fn start_with_recovery(root: &Path, config: &Config) -> Result<(Daemon, RecoveryReport)> {
         let report = Self::recover(root, config)?;
 
         let mut daemon = Daemon::new(root.to_path_buf(), config.clone());

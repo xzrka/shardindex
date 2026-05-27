@@ -5,9 +5,8 @@
 /// 1. Token budget enforcement actually reduces response size
 /// 2. Compression pipeline preserves essential fields
 /// 3. MCP response token counts stay within budget
-
 use shardindex::database::IndexDb;
-use shardindex::database::{SymbolRecord, ReferenceRecord};
+use shardindex::database::{ReferenceRecord, SymbolRecord};
 use shardindex::token_budget::{self, BudgetStrategy};
 use shardindex::token_estimation::estimate_token_count;
 
@@ -18,21 +17,11 @@ fn setup_test_db() -> IndexDb {
     let db = IndexDb::open_in_memory().expect("create in-memory DB");
 
     // Insert test file
-    db.upsert_file(
-        "src/lib.rs",
-        "abc123",
-        4096,
-        "2026-01-01T00:00:00Z",
-    )
-    .expect("upsert file");
+    db.upsert_file("src/lib.rs", "abc123", 4096, "2026-01-01T00:00:00Z")
+        .expect("upsert file");
 
-    db.upsert_file(
-        "src/main.rs",
-        "def456",
-        2048,
-        "2026-01-01T00:00:00Z",
-    )
-    .expect("upsert file");
+    db.upsert_file("src/main.rs", "def456", 2048, "2026-01-01T00:00:00Z")
+        .expect("upsert file");
 
     // Insert symbols with docstrings and signatures
     let symbols = vec![
@@ -232,8 +221,14 @@ fn test_file_symbols_response_structure() {
     let symbols = json.get("symbols").unwrap().as_array().unwrap();
     for sym in symbols {
         assert!(sym.get("name").is_some(), "symbol should have name");
-        assert!(sym.get("docstring").is_some(), "symbol should have docstring");
-        assert!(sym.get("signature").is_some(), "symbol should have signature");
+        assert!(
+            sym.get("docstring").is_some(),
+            "symbol should have docstring"
+        );
+        assert!(
+            sym.get("signature").is_some(),
+            "symbol should have signature"
+        );
     }
 }
 
@@ -249,7 +244,10 @@ fn test_token_budget_enforcement_reduces_response() {
     let (reduced, truncated, strategy) = token_budget::enforce_budget(&json, budget);
 
     assert!(truncated, "response should be truncated for tight budget");
-    assert!(strategy.is_some(), "a compression strategy should be applied");
+    assert!(
+        strategy.is_some(),
+        "a compression strategy should be applied"
+    );
 
     let reduced_tokens = shardindex::token_budget::estimate_json_tokens(&reduced);
     assert!(
@@ -284,7 +282,10 @@ fn test_compression_preserves_essential_fields() {
     let (reduced, _truncated, _strategy) = token_budget::enforce_budget(&json, 5);
 
     // Essential fields should still exist
-    assert!(reduced.get("file").is_some(), "file field should be preserved");
+    assert!(
+        reduced.get("file").is_some(),
+        "file field should be preserved"
+    );
 
     if let Some(symbols) = reduced.get("symbols").and_then(|s| s.as_array()) {
         assert!(!symbols.is_empty(), "symbols array should not be empty");
@@ -316,10 +317,7 @@ fn test_compression_strips_docstrings() {
                 sym.get("docstring").is_none(),
                 "docstring should be stripped from symbol"
             );
-            assert!(
-                sym.get("name").is_some(),
-                "name should still be present"
-            );
+            assert!(sym.get("name").is_some(), "name should still be present");
         }
     } else {
         panic!("symbols array should exist after stripping docstrings");
@@ -363,7 +361,10 @@ fn test_search_response_budget() {
     let budget = 5;
     let (reduced, truncated, _strategy) = token_budget::enforce_budget(&json, budget);
 
-    assert!(truncated, "search response should be truncated for tight budget");
+    assert!(
+        truncated,
+        "search response should be truncated for tight budget"
+    );
     let reduced_tokens = shardindex::token_budget::estimate_json_tokens(&reduced);
     assert!(
         reduced_tokens < initial_tokens,
@@ -382,7 +383,10 @@ fn test_impact_response_budget() {
 
     // Verify the impact response has data
     let impacted = json.get("impacted_symbols").unwrap().as_array().unwrap();
-    assert!(!impacted.is_empty(), "process_data should have impacted symbols");
+    assert!(
+        !impacted.is_empty(),
+        "process_data should have impacted symbols"
+    );
 
     let budget = 5;
     let (reduced, truncated, _strategy) = token_budget::enforce_budget(&json, budget);
@@ -488,8 +492,7 @@ fn test_compression_pipeline_e2e() {
     let mut prev_tokens = initial_tokens + 1;
 
     for budget in &budgets {
-        let (reduced, _truncated, _strategy) =
-            token_budget::enforce_budget(&combined, *budget);
+        let (reduced, _truncated, _strategy) = token_budget::enforce_budget(&combined, *budget);
         let tokens = shardindex::token_budget::estimate_json_tokens(&reduced);
         assert!(
             tokens <= prev_tokens,
@@ -509,7 +512,10 @@ fn test_estimation_accuracy() {
     let tokens2 = estimate_token_count(text);
     assert_eq!(tokens1, tokens2, "token estimation should be deterministic");
     assert!(tokens1 > 0, "token count should be positive");
-    assert!(tokens1 < text.len(), "tokens should be less than char count");
+    assert!(
+        tokens1 < text.len(),
+        "tokens should be less than char count"
+    );
 }
 
 #[test]
@@ -519,7 +525,10 @@ fn test_truncate_results_count_field() {
     let json = build_search_results_json(&db, "e");
 
     let original_count = json.get("count").unwrap().as_u64().unwrap();
-    assert!(original_count >= 3, "should have at least 3 results to truncate");
+    assert!(
+        original_count >= 3,
+        "should have at least 3 results to truncate"
+    );
 
     // Truncate to max 5 (default) — if we have more, it should reduce
     let truncated = BudgetStrategy::TruncateResults.apply(&json);

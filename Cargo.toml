@@ -8,6 +8,7 @@ description = "Semantic code graph index — AST-powered middleware for AI agent
 # CLI
 clap = { version = "4", features = ["derive"] }
 anyhow = "1"
+thiserror = "2"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 

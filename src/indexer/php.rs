@@ -74,7 +74,12 @@ impl PhpParser {
         }
     }
 
-    fn extract_function(node: &Node, source: &[u8], result: &mut ParseResult, parent: Option<&str>) {
+    fn extract_function(
+        node: &Node,
+        source: &[u8],
+        result: &mut ParseResult,
+        parent: Option<&str>,
+    ) {
         let name = node
             .child_by_field_name("name")
             .and_then(|n| n.utf8_text(source).ok())
@@ -111,12 +116,17 @@ impl PhpParser {
             return;
         };
 
-        let ext = node.child_by_field_name("extends")
+        let ext = node
+            .child_by_field_name("extends")
             .and_then(|n| n.utf8_text(source).ok())
             .map(|s| s.to_string());
 
         let is_enum = node.kind() == "enum_declaration";
-        let kind = if is_enum { SymbolKind::Enum } else { SymbolKind::Class };
+        let kind = if is_enum {
+            SymbolKind::Enum
+        } else {
+            SymbolKind::Class
+        };
         let sig = if let Some(base) = &ext {
             format!("class {} extends {}", name, base)
         } else if is_enum {
@@ -188,7 +198,9 @@ impl PhpParser {
                     .map(|s| s.to_string());
                 if let Some(n) = name {
                     let cleaned = n.replace("\\", "/");
-                    result.imports.push((cleaned.clone(), cleaned.clone(), "use".to_string()));
+                    result
+                        .imports
+                        .push((cleaned.clone(), cleaned.clone(), "use".to_string()));
                     result.references.push(ParsedReference {
                         caller_symbol: None,
                         callee_symbol: cleaned,
@@ -200,7 +212,12 @@ impl PhpParser {
         }
     }
 
-    fn extract_property(node: &Node, source: &[u8], result: &mut ParseResult, parent: Option<&str>) {
+    fn extract_property(
+        node: &Node,
+        source: &[u8],
+        result: &mut ParseResult,
+        parent: Option<&str>,
+    ) {
         let name = node
             .child_by_field_name("name")
             .and_then(|n| n.utf8_text(source).ok())

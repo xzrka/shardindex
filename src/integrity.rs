@@ -16,7 +16,6 @@
 ///     → mismatch 시 dirty_queue INSERT (reason="hash_changed", priority=1)
 ///     → process_dirty() 호출 → 재인덱싱 → checksums UPDATE
 /// ```
-
 use std::collections::HashSet;
 use std::fs;
 use std::path::Path;
@@ -217,10 +216,7 @@ impl IntegrityGuard {
             return Ok(0);
         }
 
-        info!(
-            "Processing dirty queue: {} entries",
-            dirty_entries.len()
-        );
+        info!("Processing dirty queue: {} entries", dirty_entries.len());
 
         let mut processed = 0;
         let mut failed: HashSet<String> = HashSet::new();
@@ -241,10 +237,7 @@ impl IntegrityGuard {
                     processed += 1;
                 }
                 Err(e) => {
-                    warn!(
-                        "Failed to process dirty file {}: {}",
-                        entry.file_path, e
-                    );
+                    warn!("Failed to process dirty file {}: {}", entry.file_path, e);
                     failed.insert(entry.file_path.clone());
                 }
             }
@@ -267,8 +260,11 @@ impl IntegrityGuard {
         root: &Path,
         language: Language,
     ) -> anyhow::Result<Vec<String>> {
-        let extensions: Vec<String> =
-            language.extensions().iter().map(|s| s.to_string()).collect();
+        let extensions: Vec<String> = language
+            .extensions()
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
         let existing_files: HashSet<String> = db
             .all_checksums()?
             .iter()
@@ -277,7 +273,10 @@ impl IntegrityGuard {
 
         let mut new_files = Vec::new();
 
-        for entry in walkdir::WalkDir::new(root).into_iter().filter_map(Result::ok) {
+        for entry in walkdir::WalkDir::new(root)
+            .into_iter()
+            .filter_map(Result::ok)
+        {
             let path = entry.path();
             if !path.is_file() {
                 continue;
@@ -312,8 +311,20 @@ impl IntegrityGuard {
 
     fn is_ignored(path: &Path, root: &Path) -> bool {
         let skip = [
-            ".git", "__pycache__", ".venv", "venv", "node_modules", ".mypy_cache",
-            ".tox", ".eggs", "target", "dist", "build", ".next", ".nuxt", ".shardindex",
+            ".git",
+            "__pycache__",
+            ".venv",
+            "venv",
+            "node_modules",
+            ".mypy_cache",
+            ".tox",
+            ".eggs",
+            "target",
+            "dist",
+            "build",
+            ".next",
+            ".nuxt",
+            ".shardindex",
         ];
 
         let relative = match path.strip_prefix(root) {
@@ -378,8 +389,12 @@ mod tests {
         fs::write(&test_file, "def foo():\n    pass\n").unwrap();
 
         // Store a different hash
-        db.upsert_checksum("test.py", "0000000000000000000000000000000000000000000000000000000000000000", 22)
-            .unwrap();
+        db.upsert_checksum(
+            "test.py",
+            "0000000000000000000000000000000000000000000000000000000000000000",
+            22,
+        )
+        .unwrap();
 
         let result = IntegrityGuard::verify_file(&db, dir.path(), "test.py").unwrap();
         assert_eq!(result.status, VerifyStatus::Dirty);
@@ -390,8 +405,7 @@ mod tests {
         let (db, _dir) = test_db();
         db.upsert_checksum("nonexistent.py", "abc123", 100).unwrap();
 
-        let result =
-            IntegrityGuard::verify_file(&db, Path::new("."), "nonexistent.py").unwrap();
+        let result = IntegrityGuard::verify_file(&db, Path::new("."), "nonexistent.py").unwrap();
         assert_eq!(result.status, VerifyStatus::Missing);
     }
 

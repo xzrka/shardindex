@@ -6,8 +6,7 @@
 /// - Deserializes cached JSON back into typed results
 /// - Tracks hit/miss statistics
 /// - Auto-purges expired entries on cold starts
-
-use crate::database::{IndexDb, AgentCacheRecord};
+use crate::database::{AgentCacheRecord, IndexDb};
 use std::sync::Mutex;
 
 /// Default TTL in seconds (5 minutes)
@@ -114,7 +113,11 @@ impl AgentCache {
     /// Increments `hit_count` on success.
     pub fn get(&self, method: &str, params: &serde_json::Value) -> Option<String> {
         let key = Self::make_key(method, params);
-        self.db.lock().unwrap().get_cached(&key).map(|rec| rec.result_json)
+        self.db
+            .lock()
+            .unwrap()
+            .get_cached(&key)
+            .map(|rec| rec.result_json)
     }
 
     /// Store a query result in the cache.
@@ -129,11 +132,18 @@ impl AgentCache {
     ) -> Result<(), anyhow::Error> {
         let key = Self::make_key(method, params);
         let effective_ttl = ttl.unwrap_or(self.default_ttl);
-        self.db.lock().unwrap().set_cached(&key, result_json, effective_ttl)
+        self.db
+            .lock()
+            .unwrap()
+            .set_cached(&key, result_json, effective_ttl)
     }
 
     /// Invalidate a specific cache entry.
-    pub fn invalidate(&self, method: &str, params: &serde_json::Value) -> Result<(), anyhow::Error> {
+    pub fn invalidate(
+        &self,
+        method: &str,
+        params: &serde_json::Value,
+    ) -> Result<(), anyhow::Error> {
         let key = Self::make_key(method, params);
         self.db.lock().unwrap().invalidate_cached(&key)
     }
@@ -177,8 +187,7 @@ impl AgentCache {
     pub fn list(&self) -> Result<Vec<AgentCacheRecord>, anyhow::Error> {
         self.db.lock().unwrap().all_cached()
     }
-
-    }
+}
 
 // ─── Unit Tests ───
 
@@ -253,7 +262,9 @@ mod tests {
         let cache = test_cache();
         let p = params("main.py");
 
-        cache.set("read", &p, r#"{"symbols":[],"count":0}"#, None).unwrap();
+        cache
+            .set("read", &p, r#"{"symbols":[],"count":0}"#, None)
+            .unwrap();
 
         let result = cache.get("read", &p);
         assert!(result.is_some());
@@ -272,7 +283,9 @@ mod tests {
         let cache = test_cache();
         let p = params("main.py");
 
-        cache.set("read", &p, r#"{"symbols":[],"count":0}"#, None).unwrap();
+        cache
+            .set("read", &p, r#"{"symbols":[],"count":0}"#, None)
+            .unwrap();
         assert!(cache.get("read", &p).is_some());
 
         cache.invalidate("read", &p).unwrap();
@@ -297,7 +310,9 @@ mod tests {
         let p = symbol_params("MyFunction");
 
         cache.set("read", &p, r#"{"method":"read"}"#, None).unwrap();
-        cache.set("impact", &p, r#"{"method":"impact"}"#, None).unwrap();
+        cache
+            .set("impact", &p, r#"{"method":"impact"}"#, None)
+            .unwrap();
 
         assert_eq!(cache.get("read", &p).unwrap(), r#"{"method":"read"}"#);
         assert_eq!(cache.get("impact", &p).unwrap(), r#"{"method":"impact"}"#);
@@ -307,11 +322,21 @@ mod tests {
     fn test_different_params_no_collision() {
         let cache = test_cache();
 
-        cache.set("read", &params("a.py"), r#"{"file":"a"}"#, None).unwrap();
-        cache.set("read", &params("b.py"), r#"{"file":"b"}"#, None).unwrap();
+        cache
+            .set("read", &params("a.py"), r#"{"file":"a"}"#, None)
+            .unwrap();
+        cache
+            .set("read", &params("b.py"), r#"{"file":"b"}"#, None)
+            .unwrap();
 
-        assert_eq!(cache.get("read", &params("a.py")).unwrap(), r#"{"file":"a"}"#);
-        assert_eq!(cache.get("read", &params("b.py")).unwrap(), r#"{"file":"b"}"#);
+        assert_eq!(
+            cache.get("read", &params("a.py")).unwrap(),
+            r#"{"file":"a"}"#
+        );
+        assert_eq!(
+            cache.get("read", &params("b.py")).unwrap(),
+            r#"{"file":"b"}"#
+        );
     }
 
     // ─── TTL ───
@@ -363,25 +388,31 @@ mod tests {
         let cache = test_cache();
 
         // Cache results that mention "src/main.py"
-        cache.set(
-            "read",
-            &params("src/main.py"),
-            r#"{"file":"src/main.py","symbols":[{"name":"foo"}]}"#,
-            None,
-        ).unwrap();
-        cache.set(
-            "impact",
-            &symbol_params("foo"),
-            r#"{"impacted_symbols":[{"file_path":"src/main.py","name":"bar"}]}"#,
-            None,
-        ).unwrap();
+        cache
+            .set(
+                "read",
+                &params("src/main.py"),
+                r#"{"file":"src/main.py","symbols":[{"name":"foo"}]}"#,
+                None,
+            )
+            .unwrap();
+        cache
+            .set(
+                "impact",
+                &symbol_params("foo"),
+                r#"{"impacted_symbols":[{"file_path":"src/main.py","name":"bar"}]}"#,
+                None,
+            )
+            .unwrap();
         // This one does NOT mention "src/main.py"
-        cache.set(
-            "read",
-            &params("src/utils.py"),
-            r#"{"file":"src/utils.py","symbols":[{"name":"baz"}]}"#,
-            None,
-        ).unwrap();
+        cache
+            .set(
+                "read",
+                &params("src/utils.py"),
+                r#"{"file":"src/utils.py","symbols":[{"name":"baz"}]}"#,
+                None,
+            )
+            .unwrap();
 
         // Invalidate for "src/main.py"
         let count = cache.invalidate_for_file("src/main.py").unwrap();
@@ -455,7 +486,14 @@ mod tests {
         let p = params("main.py");
 
         cache.set("read", &p, r#"{"count":1}"#, Some(3600)).unwrap();
-        cache.set("impact", &symbol_params("foo"), r#"{"count":5}"#, Some(3600)).unwrap();
+        cache
+            .set(
+                "impact",
+                &symbol_params("foo"),
+                r#"{"count":5}"#,
+                Some(3600),
+            )
+            .unwrap();
 
         let stats = cache.stats().unwrap();
         assert_eq!(stats.total, 2);
@@ -471,7 +509,9 @@ mod tests {
 
         // One active, one expired
         cache.set("read", &p, r#"{"count":1}"#, Some(3600)).unwrap();
-        cache.set("impact", &symbol_params("foo"), r#"{"count":5}"#, Some(0)).unwrap();
+        cache
+            .set("impact", &symbol_params("foo"), r#"{"count":5}"#, Some(0))
+            .unwrap();
         std::thread::sleep(Duration::from_millis(10));
 
         let stats = cache.stats().unwrap();

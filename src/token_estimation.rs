@@ -48,10 +48,15 @@ pub fn estimate_token_count(source: &str) -> usize {
 
     for i in 0..len {
         let c = chars[i];
-        let next = if i + 1 < len { Some(chars[i + 1]) } else { None };
+        let next = if i + 1 < len {
+            Some(chars[i + 1])
+        } else {
+            None
+        };
 
         // Whitespace (outside comments/strings)
-        if !in_single_line_comment && !in_multi_line_comment && !in_single_quote && !in_double_quote {
+        if !in_single_line_comment && !in_multi_line_comment && !in_single_quote && !in_double_quote
+        {
             if c.is_whitespace() {
                 whitespace_chars += 1;
                 continue;
@@ -178,16 +183,46 @@ impl LanguageDensity {
     /// Get density for a language. Defaults to 3.5 chars/token for unknown languages.
     pub fn for_language(language: &str) -> Self {
         match language {
-            "python" => LanguageDensity { language: "python", chars_per_token: 3.8 },
-            "javascript" => LanguageDensity { language: "javascript", chars_per_token: 3.4 },
-            "typescript" => LanguageDensity { language: "typescript", chars_per_token: 3.4 },
-            "rust" => LanguageDensity { language: "rust", chars_per_token: 3.2 },
-            "go" => LanguageDensity { language: "go", chars_per_token: 3.5 },
-            "java" => LanguageDensity { language: "java", chars_per_token: 3.3 },
-            "ruby" => LanguageDensity { language: "ruby", chars_per_token: 3.6 },
-            "c" => LanguageDensity { language: "c", chars_per_token: 3.1 },
-            "cpp" => LanguageDensity { language: "cpp", chars_per_token: 3.1 },
-            _ => LanguageDensity { language: "unknown", chars_per_token: 3.5 },
+            "python" => LanguageDensity {
+                language: "python",
+                chars_per_token: 3.8,
+            },
+            "javascript" => LanguageDensity {
+                language: "javascript",
+                chars_per_token: 3.4,
+            },
+            "typescript" => LanguageDensity {
+                language: "typescript",
+                chars_per_token: 3.4,
+            },
+            "rust" => LanguageDensity {
+                language: "rust",
+                chars_per_token: 3.2,
+            },
+            "go" => LanguageDensity {
+                language: "go",
+                chars_per_token: 3.5,
+            },
+            "java" => LanguageDensity {
+                language: "java",
+                chars_per_token: 3.3,
+            },
+            "ruby" => LanguageDensity {
+                language: "ruby",
+                chars_per_token: 3.6,
+            },
+            "c" => LanguageDensity {
+                language: "c",
+                chars_per_token: 3.1,
+            },
+            "cpp" => LanguageDensity {
+                language: "cpp",
+                chars_per_token: 3.1,
+            },
+            _ => LanguageDensity {
+                language: "unknown",
+                chars_per_token: 3.5,
+            },
         }
     }
 
@@ -215,7 +250,11 @@ mod tests {
         let code = "fn hello() { println!(\"world\"); }";
         let tokens = estimate_token_count(code);
         // Should be roughly 8-12 tokens for this short function
-        assert!(tokens >= 5 && tokens <= 15, "Expected 5-12 tokens, got {}", tokens);
+        assert!(
+            tokens >= 5 && tokens <= 15,
+            "Expected 5-12 tokens, got {}",
+            tokens
+        );
     }
 
     #[test]
@@ -224,7 +263,11 @@ mod tests {
     print("world")
 "#;
         let tokens = estimate_token_count(code);
-        assert!(tokens >= 4 && tokens <= 12, "Expected 4-12 tokens, got {}", tokens);
+        assert!(
+            tokens >= 4 && tokens <= 12,
+            "Expected 4-12 tokens, got {}",
+            tokens
+        );
     }
 
     #[test]
@@ -235,7 +278,11 @@ fn hello() {
     println!("world");
 }"#;
         let tokens = estimate_token_count(code);
-        assert!(tokens >= 15 && tokens <= 40, "Expected 15-40 tokens, got {}", tokens);
+        assert!(
+            tokens >= 15 && tokens <= 40,
+            "Expected 15-40 tokens, got {}",
+            tokens
+        );
     }
 
     #[test]
@@ -246,21 +293,33 @@ fn hello() {
  */
 fn hello() {}"#;
         let tokens = estimate_token_count(code);
-        assert!(tokens >= 10 && tokens <= 30, "Expected 10-30 tokens, got {}", tokens);
+        assert!(
+            tokens >= 10 && tokens <= 30,
+            "Expected 10-30 tokens, got {}",
+            tokens
+        );
     }
 
     #[test]
     fn test_string_literal() {
         let code = r#"let s = "hello world with \"escape\"";"#;
         let tokens = estimate_token_count(code);
-        assert!(tokens >= 5 && tokens <= 12, "Expected 5-12 tokens, got {}", tokens);
+        assert!(
+            tokens >= 5 && tokens <= 12,
+            "Expected 5-12 tokens, got {}",
+            tokens
+        );
     }
 
     #[test]
     fn test_whitespace_heavy() {
         let code = "fn hello() {\n\n    println!(\"world\");\n\n}";
         let tokens = estimate_token_count(code);
-        assert!(tokens >= 5 && tokens <= 12, "Expected 5-12 tokens, got {}", tokens);
+        assert!(
+            tokens >= 5 && tokens <= 12,
+            "Expected 5-12 tokens, got {}",
+            tokens
+        );
     }
 
     #[test]
@@ -350,6 +409,10 @@ impl<K: Eq + std::hash::Hash, V> Cache<K, V> {
 "#;
         let tokens = estimate_token_count(code);
         // ~100 chars of code + comments → roughly 20-50 tokens
-        assert!(tokens >= 50 && tokens <= 200, "Expected 50-200 tokens for ~100 LOC, got {}", tokens);
+        assert!(
+            tokens >= 50 && tokens <= 200,
+            "Expected 50-200 tokens for ~100 LOC, got {}",
+            tokens
+        );
     }
 }

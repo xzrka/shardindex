@@ -78,21 +78,27 @@ impl JuliaParser {
         }
     }
 
-    fn extract_function(node: &Node, source: &[u8], result: &mut ParseResult, parent: Option<&str>) {
+    fn extract_function(
+        node: &Node,
+        source: &[u8],
+        result: &mut ParseResult,
+        parent: Option<&str>,
+    ) {
         // Julia: function name is positional: named_child(0) = signature -> [typed_]expression -> call_expression -> identifier
         let signature = node.named_child(0);
-        let name = signature.and_then(|sig| {
-            let first = sig.named_child(0)?; // typed_expression or call_expression
-            // If typed_expression, drill down to call_expression
-            let ce = if first.kind() == "call_expression" {
-                first
-            } else {
-                first.named_child(0)? // typed_expression -> call_expression
-            };
-            ce.named_child(0) // call_expression -> identifier
-        })
-        .and_then(|n| n.utf8_text(source).ok())
-        .map(|s| s.to_string());
+        let name = signature
+            .and_then(|sig| {
+                let first = sig.named_child(0)?; // typed_expression or call_expression
+                // If typed_expression, drill down to call_expression
+                let ce = if first.kind() == "call_expression" {
+                    first
+                } else {
+                    first.named_child(0)? // typed_expression -> call_expression
+                };
+                ce.named_child(0) // call_expression -> identifier
+            })
+            .and_then(|n| n.utf8_text(source).ok())
+            .map(|s| s.to_string());
         let Some(name) = name else {
             return;
         };
@@ -214,11 +220,9 @@ impl JuliaParser {
             if child.kind() == "dotted_name" {
                 if let Ok(name) = child.utf8_text(source) {
                     let cleaned = name.to_string();
-                    result.imports.push((
-                        cleaned.clone(),
-                        cleaned.clone(),
-                        "import".to_string(),
-                    ));
+                    result
+                        .imports
+                        .push((cleaned.clone(), cleaned.clone(), "import".to_string()));
                     result.references.push(ParsedReference {
                         caller_symbol: None,
                         callee_symbol: cleaned,

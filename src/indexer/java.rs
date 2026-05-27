@@ -36,7 +36,13 @@ impl JavaParser {
         Ok(result)
     }
 
-    fn walk_node(node: &Node, source: &[u8], result: &mut ParseResult, parent: Option<String>, current_function: Option<String>) {
+    fn walk_node(
+        node: &Node,
+        source: &[u8],
+        result: &mut ParseResult,
+        parent: Option<String>,
+        current_function: Option<String>,
+    ) {
         let kind = node.kind();
 
         match kind {
@@ -121,7 +127,6 @@ impl JavaParser {
             docstring: None,
             parent: parent.map(|s| s.to_string()),
         });
-
     }
 
     fn extract_class(node: &Node, source: &[u8], result: &mut ParseResult, parent: Option<&str>) {
@@ -165,9 +170,7 @@ impl JavaParser {
         };
 
         // BUG-011 fix: prevent class from having itself as parent
-        let effective_parent = parent
-            .filter(|p| *p != name)
-            .map(|s| s.to_string());
+        let effective_parent = parent.filter(|p| *p != name).map(|s| s.to_string());
 
         result.symbols.push(ParsedSymbol {
             name: name.clone(),
@@ -201,9 +204,7 @@ impl JavaParser {
         };
 
         // BUG-011 fix: prevent enum from having itself as parent
-        let effective_parent = parent
-            .filter(|p| *p != name)
-            .map(|s| s.to_string());
+        let effective_parent = parent.filter(|p| *p != name).map(|s| s.to_string());
 
         result.symbols.push(ParsedSymbol {
             name,
@@ -223,11 +224,9 @@ impl JavaParser {
         let imported_name = node.named_child(0).and_then(|n| n.utf8_text(source).ok());
         if let Some(name) = imported_name {
             let cleaned = name.trim_end_matches('.').to_string();
-            result.imports.push((
-                cleaned.clone(),
-                cleaned.clone(),
-                "import".to_string(),
-            ));
+            result
+                .imports
+                .push((cleaned.clone(), cleaned.clone(), "import".to_string()));
             result.references.push(ParsedReference {
                 caller_symbol: None,
                 callee_symbol: cleaned,
@@ -262,7 +261,12 @@ impl JavaParser {
         }
     }
 
-    fn extract_constructor(node: &Node, source: &[u8], result: &mut ParseResult, parent: Option<&str>) {
+    fn extract_constructor(
+        node: &Node,
+        source: &[u8],
+        result: &mut ParseResult,
+        parent: Option<&str>,
+    ) {
         let name = node
             .child_by_field_name("name")
             .and_then(|n| n.utf8_text(source).ok())

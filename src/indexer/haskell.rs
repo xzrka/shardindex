@@ -74,7 +74,12 @@ impl HaskellParser {
         }
     }
 
-    fn extract_function(node: &Node, source: &[u8], result: &mut ParseResult, parent: Option<&str>) {
+    fn extract_function(
+        node: &Node,
+        source: &[u8],
+        result: &mut ParseResult,
+        parent: Option<&str>,
+    ) {
         let name = node
             .child_by_field_name("name")
             .and_then(|n| n.utf8_text(source).ok())
@@ -140,7 +145,12 @@ impl HaskellParser {
         });
     }
 
-    fn extract_type_alias(node: &Node, source: &[u8], result: &mut ParseResult, parent: Option<&str>) {
+    fn extract_type_alias(
+        node: &Node,
+        source: &[u8],
+        result: &mut ParseResult,
+        parent: Option<&str>,
+    ) {
         let name = node
             .child_by_field_name("name")
             .and_then(|n| n.utf8_text(source).ok())
@@ -168,11 +178,9 @@ impl HaskellParser {
             .and_then(|n| n.utf8_text(source).ok())
             .map(|s| s.to_string());
         if let Some(name) = module_name {
-            result.imports.push((
-                name.clone(),
-                name.clone(),
-                "import".to_string(),
-            ));
+            result
+                .imports
+                .push((name.clone(), name.clone(), "import".to_string()));
             result.references.push(ParsedReference {
                 caller_symbol: None,
                 callee_symbol: name,

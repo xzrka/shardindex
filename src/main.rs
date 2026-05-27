@@ -24,8 +24,8 @@ mod integrity;
 mod mcp;
 mod recovery;
 mod search;
-mod token_estimation;
 mod token_budget;
+mod token_estimation;
 mod watcher;
 
 use std::sync::{Arc, Mutex};
@@ -47,11 +47,7 @@ async fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
 
     match cli.command {
-        Commands::Init {
-            path,
-            language,
-            db,
-        } => cmd_init(&path, &language, &db)?,
+        Commands::Init { path, language, db } => cmd_init(&path, &language, &db)?,
         Commands::Daemon {
             path,
             db,
@@ -61,16 +57,21 @@ async fn main() -> anyhow::Result<()> {
         } => cmd_daemon(&path, &db, &listen, poll_interval, &language).await?,
         Commands::Reindex { path, language, db } => cmd_reindex(path.as_deref(), &language, &db)?,
         Commands::Stats { db, format } => cmd_stats(&db, format)?,
-        Commands::Search { query, db, kind, language, min_score, limit, like, format } => {
-            cmd_search(&db, &query, kind, language, min_score, limit, like, format)?
-        }
+        Commands::Search {
+            query,
+            db,
+            kind,
+            language,
+            min_score,
+            limit,
+            like,
+            format,
+        } => cmd_search(&db, &query, kind, language, min_score, limit, like, format)?,
         Commands::Neighbors { symbol, db, format } => cmd_neighbors(&db, &symbol, format)?,
         Commands::Impact { symbol, db, format } => cmd_impact(&db, &symbol, format)?,
-        Commands::Graph {
-            symbol,
-            db,
-            output,
-        } => cmd_graph(&db, symbol.as_deref(), output.as_deref())?,
+        Commands::Graph { symbol, db, output } => {
+            cmd_graph(&db, symbol.as_deref(), output.as_deref())?
+        }
         Commands::Rank {
             db,
             damping,
@@ -80,7 +81,11 @@ async fn main() -> anyhow::Result<()> {
             format,
         } => cmd_rank(&db, damping, max_iter, tolerance, top, format)?,
         Commands::Override { command, db } => cmd_override(&db, command)?,
-        Commands::Verify { symbols, db, language } => cmd_verify(&db, &symbols, language.as_deref())?,
+        Commands::Verify {
+            symbols,
+            db,
+            language,
+        } => cmd_verify(&db, &symbols, language.as_deref())?,
         Commands::McpServer { db, cache_ttl } => {
             mcp::stdio::run(&db, cache_ttl)?;
         }
@@ -112,7 +117,14 @@ async fn main() -> anyhow::Result<()> {
             update_imports,
             dry_run,
             format,
-        } => cmd_cross_module_move(&db, &symbol, &target_module, update_imports, dry_run, format)?,
+        } => cmd_cross_module_move(
+            &db,
+            &symbol,
+            &target_module,
+            update_imports,
+            dry_run,
+            format,
+        )?,
         Commands::SignatureMigrationCheck {
             symbol,
             new_signature,
@@ -252,7 +264,10 @@ async fn cmd_daemon(
             let summary = indexer.index_all_multi()?;
             info!(
                 "Initial multi-lang index: {} files, {} symbols, {} refs across {} languages",
-                summary.total_files, summary.total_symbols, summary.total_refs, summary.languages.len()
+                summary.total_files,
+                summary.total_symbols,
+                summary.total_refs,
+                summary.languages.len()
             );
         }
     }
@@ -327,7 +342,10 @@ fn cmd_reindex(root: Option<&str>, language: &str, db_path: &str) -> anyhow::Res
         let summary = indexer.index_all_multi()?;
         println!(
             "Re-indexed (multi-language): {} files, {} symbols, {} refs across {} languages",
-            summary.total_files, summary.total_symbols, summary.total_refs, summary.languages.len()
+            summary.total_files,
+            summary.total_symbols,
+            summary.total_refs,
+            summary.languages.len()
         );
     }
     Ok(())
@@ -371,8 +389,9 @@ fn cmd_search(
     let db = IndexDb::open(db_path)?;
 
     // language → file extension
-    let extension_filter = language.as_ref().map(|lang| {
-        match lang.to_lowercase().as_str() {
+    let extension_filter = language
+        .as_ref()
+        .map(|lang| match lang.to_lowercase().as_str() {
             "python" => "py",
             "javascript" | "js" => "js",
             "typescript" | "ts" => "ts",
@@ -392,18 +411,13 @@ fn cmd_search(
             "c" => "c",
             "cpp" | "c++" => "cpp",
             _ => lang.as_str(),
-        }
-    });
+        });
 
     if like_mode {
         let results = db.search_symbol_ranked(query)?;
 
         if output_format == OutputFormat::Text {
-            println!(
-                "🔍 LIKE Search '{}' — {} results",
-                query,
-                results.len()
-            );
+            println!("🔍 LIKE Search '{}' — {} results", query, results.len());
             for (sym, rank) in &results {
                 let rank_str = match rank {
                     Some(r) => format!(" [PR: {:.4}]", r),
@@ -451,8 +465,7 @@ fn cmd_search(
             ..Default::default()
         };
 
-        let results =
-            search::advanced_search(&db, query, extension_filter.as_deref(), &config)?;
+        let results = search::advanced_search(&db, query, extension_filter.as_deref(), &config)?;
 
         if output_format == OutputFormat::Text {
             println!(
@@ -515,11 +528,7 @@ fn cmd_neighbors(db_path: &str, symbol: &str, output_format: OutputFormat) -> an
     let neighbors = db.neighbors(symbol)?;
 
     if output_format == OutputFormat::Text {
-        println!(
-            "🔗 Neighbors of '{}' — {} refs",
-            symbol,
-            neighbors.len()
-        );
+        println!("🔗 Neighbors of '{}' — {} refs", symbol, neighbors.len());
         for ref_rec in &neighbors {
             println!(
                 "  {}:{} {} → {} [{}]",
@@ -582,7 +591,10 @@ fn cmd_impact(db_path: &str, symbol: &str, output_format: OutputFormat) -> anyho
     if output_format == OutputFormat::Text {
         println!(
             "💥 Impact analysis for '{}'{} — {} callers, {} refs",
-            symbol, own_rank_str, callers.len(), refs.len()
+            symbol,
+            own_rank_str,
+            callers.len(),
+            refs.len()
         );
 
         if !callers.is_empty() {
@@ -625,11 +637,7 @@ fn cmd_impact(db_path: &str, symbol: &str, output_format: OutputFormat) -> anyho
     Ok(())
 }
 
-fn cmd_graph(
-    db_path: &str,
-    symbol: Option<&str>,
-    output: Option<&str>,
-) -> anyhow::Result<()> {
+fn cmd_graph(db_path: &str, symbol: Option<&str>, output: Option<&str>) -> anyhow::Result<()> {
     let db = IndexDb::open(db_path)?;
     let dot = if let Some(sym) = symbol {
         graph::symbol_dot(&db, sym)?
@@ -774,11 +782,7 @@ fn cmd_override(db_path: &str, command: OverrideSubcommand) -> anyhow::Result<()
             for ov in &overrides {
                 println!(
                     "  [{}] {} → {} [{}] conf={:.2}",
-                    ov.id,
-                    ov.caller_symbol,
-                    ov.callee_symbol,
-                    ov.ref_kind,
-                    ov.confidence
+                    ov.id, ov.caller_symbol, ov.callee_symbol, ov.ref_kind, ov.confidence
                 );
             }
         }
@@ -787,14 +791,13 @@ fn cmd_override(db_path: &str, command: OverrideSubcommand) -> anyhow::Result<()
     Ok(())
 }
 
-fn cmd_verify(
-    db_path: &str,
-    symbols: &[String],
-    language: Option<&str>,
-) -> anyhow::Result<()> {
+fn cmd_verify(db_path: &str, symbols: &[String], language: Option<&str>) -> anyhow::Result<()> {
     let db = IndexDb::open(db_path)?;
 
-    println!("🔍 Verifying override coverage for {} symbols...", symbols.len());
+    println!(
+        "🔍 Verifying override coverage for {} symbols...",
+        symbols.len()
+    );
 
     let mut unresolved = Vec::new();
     for sym in symbols {
@@ -807,13 +810,17 @@ fn cmd_verify(
         }
     }
 
-     if unresolved.is_empty() {
+    if unresolved.is_empty() {
         println!("\n🎉 All symbols have overrides!");
     } else {
         println!(
             "\n⚠️  {} symbols unresolved: {}",
             unresolved.len(),
-            unresolved.iter().map(|s| s.as_str()).collect::<Vec<_>>().join(", ")
+            unresolved
+                .iter()
+                .map(|s| s.as_str())
+                .collect::<Vec<_>>()
+                .join(", ")
         );
     }
 
@@ -832,7 +839,7 @@ fn cmd_read(
     output_format: OutputFormat,
 ) -> anyhow::Result<()> {
     use anyhow::Context;
-    use compression::{compress_symbol, CompressionLevel};
+    use compression::{CompressionLevel, compress_symbol};
     use database::IndexDb;
     use std::str::FromStr;
 
@@ -878,11 +885,17 @@ fn cmd_read(
         println!("   File:      {}", sym.file_path);
         println!("   Lines:     {}–{}", sym.start_line, sym.end_line);
         println!("   Kind:      {}", sym.kind);
-        println!("   Signature: {}", sym.signature.as_deref().unwrap_or("<none>"));
+        println!(
+            "   Signature: {}",
+            sym.signature.as_deref().unwrap_or("<none>")
+        );
         if let Some(doc) = &sym.docstring {
             println!("   Docstring: {}", doc);
         }
-        println!("   Tokens:    {} (original: {})", compressed.estimated_tokens, sym.token_count);
+        println!(
+            "   Tokens:    {} (original: {})",
+            compressed.estimated_tokens, sym.token_count
+        );
         println!("   Compression: {}", compressed.compression_used);
         println!();
         println!("── {} ──", compressed.compression_used);
@@ -954,7 +967,15 @@ fn cmd_impact_deep(
     output_format: OutputFormat,
 ) -> anyhow::Result<()> {
     let db = IndexDb::open(db_path)?;
-    let result = graph::impact_deep(&db, symbol, depth, include_tests, include_dynamic, true, None)?;
+    let result = graph::impact_deep(
+        &db,
+        symbol,
+        depth,
+        include_tests,
+        include_dynamic,
+        true,
+        None,
+    )?;
 
     if output_format == OutputFormat::Text {
         println!("🔍 Deep Impact Analysis: '{}'", symbol);
@@ -962,7 +983,10 @@ fn cmd_impact_deep(
         for layer in &result.layers {
             println!(
                 "   Layer {} (confidence: {:.2}, risk: {}): {} symbols",
-                layer.depth, layer.confidence, layer.risk, layer.symbols.len()
+                layer.depth,
+                layer.confidence,
+                layer.risk,
+                layer.symbols.len()
             );
             for sym in &layer.symbols {
                 println!("     - {}", sym);
@@ -983,7 +1007,10 @@ fn cmd_impact_deep(
         if !result.dynamic_refs_at_risk.is_empty() {
             println!("   Dynamic refs at risk:");
             for ref_risk in &result.dynamic_refs_at_risk {
-                println!("     ⚠️  {} (confidence: {:.2}, file: {})", ref_risk.expr, ref_risk.confidence, ref_risk.file);
+                println!(
+                    "     ⚠️  {} (confidence: {:.2}, file: {})",
+                    ref_risk.expr, ref_risk.confidence, ref_risk.file
+                );
             }
         }
         println!("   Recommendation: {}", result.recommendation);
@@ -1009,7 +1036,14 @@ fn cmd_dead_code_verify(
 
     if output_format == OutputFormat::Text {
         println!("🗑️  Dead Code Verification: '{}'", symbol);
-        println!("   Safe to delete: {}", if result.safe_to_delete { "✅ YES" } else { "❌ NO" });
+        println!(
+            "   Safe to delete: {}",
+            if result.safe_to_delete {
+                "✅ YES"
+            } else {
+                "❌ NO"
+            }
+        );
         for (stage_name, stage) in &result.stages {
             println!("   Stage '{}': {}", stage_name, stage.status);
             if let Some(callers) = &stage.callers {
@@ -1046,19 +1080,34 @@ fn cmd_cross_module_move(
     output_format: OutputFormat,
 ) -> anyhow::Result<()> {
     let db = IndexDb::open(db_path)?;
-    let result = graph::cross_module_move(&db, symbol, target_module, update_imports, false, dry_run)?;
+    let result =
+        graph::cross_module_move(&db, symbol, target_module, update_imports, false, dry_run)?;
 
     if output_format == OutputFormat::Text {
         println!("📦 Cross-Module Move: '{}' → '{}'", symbol, target_module);
-        println!("   Dry run: {} | Safe: {}", dry_run, if result.safe_to_execute { "✅ YES" } else { "⚠️ NO" });
+        println!(
+            "   Dry run: {} | Safe: {}",
+            dry_run,
+            if result.safe_to_execute {
+                "✅ YES"
+            } else {
+                "⚠️ NO"
+            }
+        );
         println!("   Files to modify: {}", result.files_to_modify.len());
         for fm in &result.files_to_modify {
-            println!("     [{}] {} (symbol: {:?}, from: {:?}, to: {:?})", fm.action, fm.path, fm.symbol, fm.from, fm.to);
+            println!(
+                "     [{}] {} (symbol: {:?}, from: {:?}, to: {:?})",
+                fm.action, fm.path, fm.symbol, fm.from, fm.to
+            );
         }
         if !result.unresolved_refs.is_empty() {
             println!("   Unresolved refs: {}", result.unresolved_refs.len());
             for uref in &result.unresolved_refs {
-                println!("     ⚠️  {} ({}) — {}", uref.file, uref.ref_type, uref.value);
+                println!(
+                    "     ⚠️  {} ({}) — {}",
+                    uref.file, uref.ref_type, uref.value
+                );
             }
         }
         println!("   Estimated tokens: {}", result.estimated_tokens);
@@ -1082,7 +1131,14 @@ fn cmd_signature_migration_check(
     if output_format == OutputFormat::Text {
         println!("🔧 Signature Migration Check: '{}'", symbol);
         println!("   New signature: {}", new_signature);
-        println!("   Compatible: {}", if result.compatible { "✅ YES" } else { "❌ NO" });
+        println!(
+            "   Compatible: {}",
+            if result.compatible {
+                "✅ YES"
+            } else {
+                "❌ NO"
+            }
+        );
         println!("   Safe callers: {}", result.safe_callers);
         if !result.breaking_callers.is_empty() {
             println!("   Breaking callers: {}", result.breaking_callers.len());

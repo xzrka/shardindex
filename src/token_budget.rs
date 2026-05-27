@@ -7,7 +7,6 @@
 ///
 /// Aligns with masterplan §10 (Token Budget & Semantic Compression)
 /// and NEXT_TODO Phase 4-3.
-
 use serde::{Deserialize, Serialize};
 
 use crate::token_estimation::estimate_token_count;
@@ -39,10 +38,7 @@ pub struct TokenBudgetedResponse {
 
 impl TokenBudgetedResponse {
     /// Create a new budgeted response. Returns `None` if no budget was specified.
-    pub fn new(
-        result: serde_json::Value,
-        budget_requested: Option<usize>,
-    ) -> Option<Self> {
+    pub fn new(result: serde_json::Value, budget_requested: Option<usize>) -> Option<Self> {
         let budget_requested = match budget_requested {
             Some(b) if b > 0 => b,
             _ => return None,
@@ -170,8 +166,11 @@ fn truncate_results(value: &serde_json::Value, max_count: usize) -> serde_json::
                 }
 
                 let reduced = truncate_results(v, max_count);
-                if k == "results" || k == "symbols" || k == "neighbors"
-                    || k == "impacted_symbols" || k == "references"
+                if k == "results"
+                    || k == "symbols"
+                    || k == "neighbors"
+                    || k == "impacted_symbols"
+                    || k == "references"
                 {
                     if let serde_json::Value::Array(arr) = &reduced {
                         if arr.len() > max_count {
@@ -184,10 +183,8 @@ fn truncate_results(value: &serde_json::Value, max_count: usize) -> serde_json::
                             // Update count field if present
                             if let Some(count_val) = map.get("count") {
                                 if count_val.as_u64().map_or(false, |c| c > max_count as u64) {
-                                    new_map.insert(
-                                        "count".to_string(),
-                                        serde_json::json!(max_count),
-                                    );
+                                    new_map
+                                        .insert("count".to_string(), serde_json::json!(max_count));
                                     count_updated = true;
                                 }
                             }
@@ -328,7 +325,10 @@ mod tests {
             .unwrap()
             .with_compression("signature_only");
         assert!(response.truncated);
-        assert_eq!(response.compression_applied, Some("signature_only".to_string()));
+        assert_eq!(
+            response.compression_applied,
+            Some("signature_only".to_string())
+        );
     }
 
     #[test]
@@ -385,7 +385,8 @@ mod tests {
 
     #[test]
     fn test_truncate_results() {
-        let items: Vec<serde_json::Value> = (0..20).map(|i| serde_json::json!({ "id": i })).collect();
+        let items: Vec<serde_json::Value> =
+            (0..20).map(|i| serde_json::json!({ "id": i })).collect();
         let json = serde_json::json!({
             "results": items,
             "count": 20
@@ -397,10 +398,7 @@ mod tests {
             } else {
                 panic!("Expected array for results");
             }
-            assert_eq!(
-                map.get("count").and_then(|v| v.as_u64()),
-                Some(5)
-            );
+            assert_eq!(map.get("count").and_then(|v| v.as_u64()), Some(5));
         } else {
             panic!("Expected object");
         }
@@ -453,9 +451,18 @@ mod tests {
         if let serde_json::Value::Object(map) = result {
             if let serde_json::Value::Array(arr) = map.get("results").unwrap() {
                 for item in arr {
-                    assert!(item.get("docstring").is_none(), "docstring should be stripped");
-                    assert!(item.get("signature").is_none(), "signature should be stripped");
-                    assert!(item.get("full_body").is_none(), "full_body should be stripped");
+                    assert!(
+                        item.get("docstring").is_none(),
+                        "docstring should be stripped"
+                    );
+                    assert!(
+                        item.get("signature").is_none(),
+                        "signature should be stripped"
+                    );
+                    assert!(
+                        item.get("full_body").is_none(),
+                        "full_body should be stripped"
+                    );
                     assert!(item.get("name").is_some(), "name should remain");
                 }
             }
@@ -495,9 +502,6 @@ mod tests {
         let result = serde_json::json!({ "key": "value" });
         let response = TokenBudgetedResponse::new(result, Some(100)).unwrap();
         assert!(response.budget_remaining.unwrap() < 100);
-        assert_eq!(
-            response.budget_requested.unwrap(),
-            100
-        );
+        assert_eq!(response.budget_requested.unwrap(), 100);
     }
 }

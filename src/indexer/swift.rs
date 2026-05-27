@@ -43,7 +43,10 @@ impl SwiftParser {
             "function_declaration" => {
                 Self::extract_function(node, source, result, parent.as_deref());
             }
-            "class_declaration" | "struct_declaration" | "enum_declaration" | "protocol_declaration" => {
+            "class_declaration"
+            | "struct_declaration"
+            | "enum_declaration"
+            | "protocol_declaration" => {
                 Self::extract_type(node, source, result, parent.as_deref());
             }
             "property_declaration" => {
@@ -71,7 +74,12 @@ impl SwiftParser {
         }
     }
 
-    fn extract_function(node: &Node, source: &[u8], result: &mut ParseResult, parent: Option<&str>) {
+    fn extract_function(
+        node: &Node,
+        source: &[u8],
+        result: &mut ParseResult,
+        parent: Option<&str>,
+    ) {
         let name = node
             .child_by_field_name("name")
             .and_then(|n| n.utf8_text(source).ok())
@@ -122,7 +130,12 @@ impl SwiftParser {
             .map(|s| s.to_string());
 
         let sig = if let Some(base) = &inherits_from {
-            format!("{} {} : {}", node.kind().replace("_declaration", ""), name, base)
+            format!(
+                "{} {} : {}",
+                node.kind().replace("_declaration", ""),
+                name,
+                base
+            )
         } else {
             format!("{} {}", node.kind().replace("_declaration", ""), name)
         };
@@ -149,7 +162,12 @@ impl SwiftParser {
         }
     }
 
-    fn extract_property(node: &Node, source: &[u8], result: &mut ParseResult, parent: Option<&str>) {
+    fn extract_property(
+        node: &Node,
+        source: &[u8],
+        result: &mut ParseResult,
+        parent: Option<&str>,
+    ) {
         let name = node
             .child_by_field_name("name")
             .and_then(|n| n.utf8_text(source).ok())
@@ -175,11 +193,9 @@ impl SwiftParser {
             .and_then(|n| n.utf8_text(source).ok())
             .map(|s| s.to_string());
         if let Some(name) = module_name {
-            result.imports.push((
-                name.clone(),
-                name.clone(),
-                "import".to_string(),
-            ));
+            result
+                .imports
+                .push((name.clone(), name.clone(), "import".to_string()));
             result.references.push(ParsedReference {
                 caller_symbol: None,
                 callee_symbol: name,

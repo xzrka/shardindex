@@ -53,17 +53,15 @@ impl ElixirParser {
         }
     }
 
-    fn extract_call(
-        node: &Node,
-        source: &[u8],
-        result: &mut ParseResult,
-        parent: Option<&str>,
-    ) {
+    fn extract_call(node: &Node, source: &[u8], result: &mut ParseResult, parent: Option<&str>) {
         // call = [callee identifier] [arguments] [do_block]
         let mut ci: usize = 0;
 
         // Find callee (first child must be identifier)
-        let callee = if node.named_child(ci).map_or(false, |n| n.kind() == "identifier") {
+        let callee = if node
+            .named_child(ci)
+            .map_or(false, |n| n.kind() == "identifier")
+        {
             node.named_child(ci).and_then(|n| n.utf8_text(source).ok())
         } else {
             None
@@ -84,7 +82,9 @@ impl ElixirParser {
             }
         };
 
-        let has_do_block = node.named_child(ci).map_or(false, |n| n.kind() == "do_block");
+        let has_do_block = node
+            .named_child(ci)
+            .map_or(false, |n| n.kind() == "do_block");
 
         match callee {
             Some("defmodule") => {
@@ -236,7 +236,7 @@ impl ElixirParser {
             return None;
         }
         // Count parameters inside parens
-        let inner = &args[paren+1..args.len().saturating_sub(1)];
+        let inner = &args[paren + 1..args.len().saturating_sub(1)];
         let params: Vec<&str> = inner.split(',').collect();
         let arity = params.len();
         Some(format!("{}/{}", func_clean, arity))

@@ -4,6 +4,8 @@ pub mod compression;
 pub mod config;
 pub mod daemon;
 pub mod database;
+pub mod error;
+pub mod fallback;
 pub mod format;
 pub mod graph;
 pub mod indexer;

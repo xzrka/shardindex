@@ -18,7 +18,6 @@
 ///       text
 ///     link_destination
 ///       text (URL)
-
 use crate::indexer::types::*;
 use anyhow::Context;
 use tree_sitter::Node;
@@ -83,12 +82,7 @@ impl MarkdownParser {
 
     /// Extract heading — uses `heading_content` field for the actual text.
     /// Level is determined by the marker node kind (`atx_h1_marker`, `atx_h2_marker`, ...).
-    fn extract_heading(
-        node: &Node,
-        source: &[u8],
-        result: &mut ParseResult,
-        parent: Option<&str>,
-    ) {
+    fn extract_heading(node: &Node, source: &[u8], result: &mut ParseResult, parent: Option<&str>) {
         // Get heading content via the "heading_content" field
         let content_node = node
             .child_by_field_name("heading_content")

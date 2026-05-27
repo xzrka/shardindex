@@ -8,10 +8,10 @@
 //! Protocol: line-delimited JSON-RPC 2.0 over stdin/stdout.
 
 use crate::agent_cache::AgentCache;
-use crate::token_budget;
 use crate::database::IndexDb;
 use crate::format::toon;
 use crate::search::{self, SearchConfig};
+use crate::token_budget;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::io::{self, BufRead, BufReader, BufWriter, Write};
@@ -87,7 +87,10 @@ impl McpResponse {
         Self {
             jsonrpc: "2.0".into(),
             result: None,
-            error: Some(McpError { code, message: message.into() }),
+            error: Some(McpError {
+                code,
+                message: message.into(),
+            }),
             id,
         }
     }
@@ -200,7 +203,11 @@ impl StdioMcpServer {
                 // Notification — ignore
                 None
             }
-            unknown => Some(McpResponse::err(req.id, -32601, &format!("Method not found: {}", unknown))),
+            unknown => Some(McpResponse::err(
+                req.id,
+                -32601,
+                &format!("Method not found: {}", unknown),
+            )),
         }
     }
 
@@ -434,16 +441,14 @@ impl StdioMcpServer {
         match tool_name {
             "stats" => self.tool_stats(arguments, id, format_hint.as_deref()),
             "search" => self.tool_search(arguments, id, format_hint.as_deref()),
-            "list_file_symbols" => self.tool_list_file_symbols(arguments, id, format_hint.as_deref()),
+            "list_file_symbols" => {
+                self.tool_list_file_symbols(arguments, id, format_hint.as_deref())
+            }
             "neighbors" => self.tool_neighbors(arguments, id, format_hint.as_deref()),
             "impact" => self.tool_impact(arguments, id, format_hint.as_deref()),
             "edit_plan" => self.tool_edit_plan(arguments, id, format_hint.as_deref()),
             "verify" => self.tool_verify(arguments, id, format_hint.as_deref()),
-            _ => McpResponse::err(
-                id,
-                -32601,
-                &format!("Unknown tool: {}", tool_name),
-            ),
+            _ => McpResponse::err(id, -32601, &format!("Unknown tool: {}", tool_name)),
         }
     }
 
@@ -484,38 +489,48 @@ impl StdioMcpServer {
         }
 
         let kind_filter = args.get("kind").and_then(|v| v.as_str()).map(String::from);
-        let language_filter = args.get("language").and_then(|v| v.as_str()).map(String::from);
-        let min_score = args.get("min_score").and_then(|v| v.as_f64()).unwrap_or(0.1);
+        let language_filter = args
+            .get("language")
+            .and_then(|v| v.as_str())
+            .map(String::from);
+        let min_score = args
+            .get("min_score")
+            .and_then(|v| v.as_f64())
+            .unwrap_or(0.1);
         let limit = args.get("limit").and_then(|v| v.as_u64()).unwrap_or(50) as usize;
-        let use_like = args.get("use_like").and_then(|v| v.as_bool()).unwrap_or(false);
+        let use_like = args
+            .get("use_like")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
         let token_budget = args
             .get("token_budget")
             .and_then(|v| v.as_u64())
             .map(|v| v as usize);
 
-        let extension_filter: Option<String> = language_filter.as_ref().map(|lang| {
-            match lang.to_lowercase().as_str() {
-                "python" => "py".to_string(),
-                "javascript" | "js" => "js".to_string(),
-                "typescript" | "ts" => "ts".to_string(),
-                "rust" | "rs" => "rs".to_string(),
-                "go" => "go".to_string(),
-                "ruby" | "rb" => "rb".to_string(),
-                "java" => "java".to_string(),
-                "php" => "php".to_string(),
-                "julia" | "jl" => "jl".to_string(),
-                "lua" => "lua".to_string(),
-                "swift" => "swift".to_string(),
-                "zig" => "zig".to_string(),
-                "scala" => "scala".to_string(),
-                "elixir" | "ex" => "ex".to_string(),
-                "dart" => "dart".to_string(),
-                "haskell" | "hs" => "hs".to_string(),
-                "c" => "c".to_string(),
-                "cpp" | "c++" => "cpp".to_string(),
-                _ => lang.clone(),
-            }
-        });
+        let extension_filter: Option<String> =
+            language_filter
+                .as_ref()
+                .map(|lang| match lang.to_lowercase().as_str() {
+                    "python" => "py".to_string(),
+                    "javascript" | "js" => "js".to_string(),
+                    "typescript" | "ts" => "ts".to_string(),
+                    "rust" | "rs" => "rs".to_string(),
+                    "go" => "go".to_string(),
+                    "ruby" | "rb" => "rb".to_string(),
+                    "java" => "java".to_string(),
+                    "php" => "php".to_string(),
+                    "julia" | "jl" => "jl".to_string(),
+                    "lua" => "lua".to_string(),
+                    "swift" => "swift".to_string(),
+                    "zig" => "zig".to_string(),
+                    "scala" => "scala".to_string(),
+                    "elixir" | "ex" => "ex".to_string(),
+                    "dart" => "dart".to_string(),
+                    "haskell" | "hs" => "hs".to_string(),
+                    "c" => "c".to_string(),
+                    "cpp" | "c++" => "cpp".to_string(),
+                    _ => lang.clone(),
+                });
 
         if use_like {
             let candidates = self.db.search_symbol_ranked(query).unwrap_or_default();
@@ -646,7 +661,7 @@ impl StdioMcpServer {
         }
     }
 
-fn tool_edit_plan(
+    fn tool_edit_plan(
         &self,
         args: &serde_json::Value,
         id: Option<serde_json::Value>,
@@ -663,7 +678,10 @@ fn tool_edit_plan(
             .map(|v| v as usize);
 
         let empty: Vec<serde_json::Value> = vec![];
-        let changes_raw = args.get("changes").and_then(|v| v.as_array()).unwrap_or(&empty);
+        let changes_raw = args
+            .get("changes")
+            .and_then(|v| v.as_array())
+            .unwrap_or(&empty);
         let depth: u8 = args.get("depth").and_then(|v| v.as_u64()).unwrap_or(1) as u8;
 
         let mut changes = Vec::new();
@@ -681,14 +699,17 @@ fn tool_edit_plan(
                 .and_then(|v| v.as_object())
                 .cloned()
                 .unwrap_or_default();
-            changes.push(crate::graph::EditChange { change_type, details });
+            changes.push(crate::graph::EditChange {
+                change_type,
+                details,
+            });
         }
 
         match crate::graph::analyze_edit_plan(&self.db, symbol, &changes, depth) {
             Ok(result) => {
-                let json_result = serde_json::to_value(result).unwrap_or_else(|_| {
-                    serde_json::json!({ "error": "Failed to serialize edit plan result" })
-                });
+                let json_result = serde_json::to_value(result).unwrap_or_else(
+                    |_| serde_json::json!({ "error": "Failed to serialize edit plan result" }),
+                );
                 McpResponse::ok_with_budget(id, &json_result, format_hint, token_budget)
             }
             Err(e) => McpResponse::err(id, -1, &format!("Edit plan error: {}", e)),
@@ -717,7 +738,11 @@ fn tool_edit_plan(
 
         let status = match (&stored_hash, &disk_hash) {
             (Some(sh), Some(dh)) => {
-                if sh == dh { "clean" } else { "dirty" }
+                if sh == dh {
+                    "clean"
+                } else {
+                    "dirty"
+                }
             }
             (None, Some(_)) => "unknown",
             (_, None) => "missing",

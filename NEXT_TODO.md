@@ -1,7 +1,7 @@
 # ShardIndex — Next Tasks
 
 Generated: 2026-05-26
-Updated: 2026-05-27 (HTTP handler budget enforcement completed)
+Updated: 2026-05-27 (Phase 11 error handling + fallback protocol completed)
 Based on: `references/masterplan.md` v1.3 vs current implementation gap analysis
 
 ## Current State
@@ -161,14 +161,38 @@ Advanced APIs for safe refactoring workflows. All 4 APIs implemented with MCP ha
 
 ---
 
-## Phase 11 — Error Handling
+## Phase 11 — Error Handling ✅ COMPLETE
 
-- [ ] Define complete error taxonomy:
-  - `StaleIndex`, `SymbolNotFound`, `ParserError`, `TokenBudgetExceeded`
-  - `RefIntegrityViolation`, `CircularDependency`, `CrossLanguageGap`
-- [ ] Implement filesystem fallback protocol (masterplan §11.2)
-  - grep/ripgrep fallback when ShardIndex fails
-  - Auto-enqueue fallback files for indexing
+### 11-1. Error Taxonomy ✅ DONE
+
+- [x] Create `src/error.rs` (354 lines)
+  - `ShardError` struct with `code`, `message`, `details`
+  - `ErrorCode` enum: 11 variants (StaleIndex, SymbolNotFound, ParserError, TokenBudgetExceeded, RefIntegrityViolation, CircularDependency, CrossLanguageGap, DatabaseError, IoError, ConfigError, IndexNotInitialized)
+  - JSON-RPC error codes (-32001 ~ -32011)
+  - `agent_action()` — human-readable suggestion per error type
+  - `ShardResult<T>` type alias
+  - `From<anyhow::Error>` — heuristic classification (order matters!)
+  - `From<std::io::Error>`, `From<rusqlite::Error>`
+  - `serde::Serialize` for MCP responses
+- [x] 12 unit tests (error_codes_unique, error_display, agent_action, serialization, clone, anyhow_conversion x4, io_conversion, sqlite_type_check, jsonrpc_negative)
+
+### 11-2. Filesystem Fallback Protocol ✅ DONE
+
+- [x] Create `src/fallback.rs` (400 lines)
+  - `FallbackResult` — structured output with `success`, `warning`, `matches`, `source_tag`
+  - `FallbackMatch` — file, line, content, context_before/after, estimated_tokens
+  - `FallbackConfig` — max_files(3), max_lines(200), context_lines(2), prefer_ripgrep
+  - `filesystem_fallback(repo_root, symbol, config)` — public API
+  - ripgrep search with glob exclusions (node_modules, .git, target, etc.)
+  - grep fallback with 20 language file extensions
+  - Context reading with configurable lines before/after match
+  - Warning injection: "ShardIndex unavailable. Using filesystem fallback."
+- [x] 8 unit tests (not_found, finds_symbol, max_files, invalid_repo, serialization, match_context, parse_grep, config_defaults)
+
+### Infrastructure
+- [x] `thiserror = "2"` added to Cargo.toml
+- [x] `error` + `fallback` modules registered in `src/lib.rs`
+- [x] 565 total tests (283 lib + 263 bin + 17 integration + 2 doctest), all passing
 
 ---
 
@@ -215,5 +239,5 @@ Advanced APIs for safe refactoring workflows. All 4 APIs implemented with MCP ha
 1. ~~**Phase 4** — Semantic Compression (all 4 sub-tasks)**~~ ✅ COMPLETE
 2. ~~**Phase 8** — Complete LanguageBackend trait (is_dynamic_ref, types)~~ ✅ COMPLETE
 3. ~~**Phase 9** — Refactoring APIs (impact_deep, dead_code_verify, etc.)~~ ✅ COMPLETE
-4. **Phase 11** — Error handling / fallback ← NEXT
-5. **Phase 12** — Benchmarks
+4. ~~**Phase 11** — Error handling / fallback~~ ✅ COMPLETE
+5. **Phase 12** — Benchmarks ← NEXT

@@ -3,7 +3,6 @@
 /// Extract symbols (functions, classes, variables, imports, exports) and references (calls, imports, inheritance)
 /// from source code. Supports Python, JavaScript, Rust, TypeScript, and Go.
 
-
 // ---------------------------------------------------------------------------
 // Shared types (language-agnostic)
 // ---------------------------------------------------------------------------
@@ -91,7 +90,10 @@ impl ParsedReference {
 
     /// Whether this reference is dynamic (runtime-resolved).
     pub fn is_dynamic(&self) -> bool {
-        matches!(self.ref_kind.as_str(), "dynamic_dispatch" | "virtual_call" | "string_ref")
+        matches!(
+            self.ref_kind.as_str(),
+            "dynamic_dispatch" | "virtual_call" | "string_ref"
+        )
     }
 }
 
@@ -156,9 +158,6 @@ pub trait SourceCodeParser {
     ///
     /// Aligns with masterplan §8.1 `LanguageBackend::is_dynamic_ref()`.
     fn is_dynamic_ref(&self, ref_kind: &str) -> bool {
-        matches!(
-            ref_kind,
-            "dynamic_dispatch" | "virtual_call" | "string_ref"
-        )
+        matches!(ref_kind, "dynamic_dispatch" | "virtual_call" | "string_ref")
     }
 }

@@ -77,7 +77,12 @@ impl DartParser {
         }
     }
 
-    fn extract_function(node: &Node, source: &[u8], result: &mut ParseResult, parent: Option<&str>) {
+    fn extract_function(
+        node: &Node,
+        source: &[u8],
+        result: &mut ParseResult,
+        parent: Option<&str>,
+    ) {
         // Dart: function name is inside function_signature -> child_by_field_name("name")
         let name = node
             .child_by_field_name("signature")
@@ -223,11 +228,9 @@ impl DartParser {
             .and_then(|n| n.utf8_text(source).ok())
             .map(|s| s.trim_matches('"').to_string());
         if let Some(name) = uri {
-            result.imports.push((
-                name.clone(),
-                name.clone(),
-                "import".to_string(),
-            ));
+            result
+                .imports
+                .push((name.clone(), name.clone(), "import".to_string()));
             result.references.push(ParsedReference {
                 caller_symbol: None,
                 callee_symbol: name,
@@ -257,7 +260,8 @@ impl DartParser {
                             for child in cn.named_children(&mut cursor) {
                                 last = Some(child);
                             }
-                            last.and_then(|n| n.utf8_text(source).ok()).map(|s| s.to_string())
+                            last.and_then(|n| n.utf8_text(source).ok())
+                                .map(|s| s.to_string())
                         })
                         .or_else(|| cn.utf8_text(source).ok().map(|s| s.to_string()))
                 }

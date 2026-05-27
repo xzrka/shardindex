@@ -1,3 +1,4 @@
+use anyhow::Context;
 /// SQLite 스키마 + 마이그레이션 버전 관리
 ///
 /// 마스터플랜 v1.1 스펙에 따른 테이블 구조:
@@ -8,9 +9,7 @@
 /// - dirty_queue (우선순위 기반 재인덱싱 큐)
 /// - versions (마이그레이션 추적)
 /// - project, file_imports, symbol_rank (기존 유지)
-
 use rusqlite::Connection;
-use anyhow::Context;
 
 /// 현재 스키마 버전 (모노토닉 증가)
 pub const CURRENT_SCHEMA_VERSION: i32 = 4;
@@ -341,11 +340,7 @@ pub fn init_db(conn: &Connection) -> Result<(), anyhow::Error> {
 
     for &(version, name, sql) in MIGRATIONS {
         if version > current_version {
-            tracing::info!(
-                "Applying migration: v{} — {}",
-                version,
-                name
-            );
+            tracing::info!("Applying migration: v{} — {}", version, name);
 
             conn.execute_batch(sql)
                 .with_context(|| format!("migration v{} ({}) failed", version, name))?;

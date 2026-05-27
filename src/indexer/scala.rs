@@ -198,11 +198,9 @@ impl ScalaParser {
             .and_then(|n| n.utf8_text(source).ok())
             .map(|s| s.to_string());
         if let Some(name) = importee {
-            result.imports.push((
-                name.clone(),
-                name.clone(),
-                "import".to_string(),
-            ));
+            result
+                .imports
+                .push((name.clone(), name.clone(), "import".to_string()));
             result.references.push(ParsedReference {
                 caller_symbol: None,
                 callee_symbol: name,
