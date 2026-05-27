@@ -1,6 +1,6 @@
 # ShardIndex — Need Fix (버그 수정 목록)
 
-> 생성일: 2026-05-26 | 마지막 업데이트: 2026-05-27 (BUG-004~010 수정)  
+> 생성일: 2026-05-26 | 마지막 업데이트: 2026-05-27 (BUG-011~017 수정 진행 중)
 > 테스트 범위: 19개 언어 단일/크로스 프로젝트 테스트, CLI 명령어 전량, MCP stdio 서버(7 tools), TOON 출력, 경계 조건, cargo test(261 unit + 17 integration + 2 doctest)
 
 ---
@@ -163,16 +163,13 @@ Dart symbols: 3
 
 ### BUG-011: `read` 명령어에서 `qualified_name` 중복
 
-**파일:** `src/main.rs` (cmd_read)  
-**상태:** ⚠️ **수정 안됨**  
+**파일:** `src/main.rs` (cmd_read), `src/indexer/mod.rs`, `src/indexer/rust.rs`, `src/indexer/go.rs`  
+**상태:** ✅ **수정 완료** (2026-05-27)  
 **설명:** `read` 명령어 출력에서 클래스 심볼의 `qualified_name`이 `app.User.User`처럼 클래스명이 중복됨.
 
-**재현:**
-```bash
-shardindex read "User" --db python.db --root /path/to/project
-# 출력: 📄 app.User.User
-# 기대: 📄 app.User
-```
+**수정:**
+1. `build_qualified_name()`에서 parent가 name과 동일할 때 중복 방지
+2. Rust/Go 인덱서에서 self-referencing parent 방지
 
 ---
 
