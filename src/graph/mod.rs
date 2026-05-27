@@ -996,6 +996,61 @@ pub fn dead_code_verify(
 
 // ─── 9.3 cross_module_move ───
 
+/// Generate a language-appropriate target file path for a module move.
+///
+/// Uses the detected project language to determine the correct file extension
+/// and path convention. Falls back to the source file's extension if language
+/// detection fails.
+fn resolve_target_file_path(
+    db: &crate::database::IndexDb,
+    target_module: &str,
+    source_file: &str,
+) -> String {
+    // Detect project language
+    let language = db.detect_project_language()
+        .or_else(|| db.detect_language_from_path(source_file))
+        .unwrap_or_else(|| "python".to_string());
+
+    // Determine file extension from language
+    let ext = match language.as_str() {
+        "python" => "py",
+        "javascript" => "js",
+        "typescript" => "ts",
+        "rust" => "rs",
+        "go" => "go",
+        "ruby" => "rb",
+        "java" => "java",
+        "php" => "php",
+        "julia" => "jl",
+        "lua" => "lua",
+        "swift" => "swift",
+        "zig" => "zig",
+        "scala" => "scala",
+        "elixir" => "ex",
+        "dart" => "dart",
+        "haskell" => "hs",
+        "c" => "c",
+        "cpp" => "cpp",
+        "markdown" => "md",
+        _ => "py", // fallback
+    };
+
+    // Language-specific path conventions
+    match language.as_str() {
+        // Rust: src/module/mod.rs
+        "rust" => format!("src/{}/mod.rs", target_module.replace('.', "/")),
+        // Go: module/file.go (lowercase module name)
+        "go" => format!("{}/{}.go", target_module.replace('.', "/"), target_module.split('.').last().unwrap_or(target_module)),
+        // Java: module/file.java (package-style path)
+        "java" => format!("{}/{}.java", target_module.replace('.', "/"), target_module.split('.').last().unwrap_or(target_module)),
+        // C/C++: include/module/file.h or src/module/file.cpp
+        "c" => format!("include/{}.h", target_module.replace('.', "/")),
+        "cpp" => format!("src/{}/{}.cpp", target_module.replace('.', "/"), target_module.split('.').last().unwrap_or(target_module)),
+        // Python/JS/TS/Ruby/PHP/Julia/Lua/Swift/Zig/Scala/Elixir/Dart/Haskell: module/file.ext
+        _ => format!("{}/{}.{}", target_module.replace('.', "/"), target_module.split('.').last().unwrap_or(target_module), ext),
+    }
+}
+
 /// Safe symbol relocation across module boundaries with automatic ref updating.
 ///
 /// Analyzes all references and import statements, generates a plan of file
@@ -1029,8 +1084,8 @@ pub fn cross_module_move(
         to: None,
     });
 
-    // Target file: insert_symbol action
-    let target_file = format!("src/{}/mod.rs", target_module.replace('.', "/"));
+    // Target file: insert_symbol action (language-aware path)
+    let target_file = resolve_target_file_path(db, target_module, &target_sym.file_path);
     files_to_modify.push(FileModification {
         path: target_file.clone(),
         action: "insert_symbol".to_string(),

@@ -536,6 +536,67 @@ impl IndexDb {
         Ok((files, symbols, refs))
     }
 
+    /// 프로젝트의 주요 언어 감지 (files 테이블에서 majority language)
+    ///
+    /// `project` 테이블의 language를 먼저 확인하고, 없으면 `files` 테이블에서
+    /// 가장 많은 언어를 반환합니다. 둘 다 없으면 `None`을 반환합니다.
+    pub fn detect_project_language(&self) -> Option<String> {
+        // 1. project 테이블에서 language 확인
+        if let Ok(lang) = self.conn.query_row(
+            "SELECT language FROM project WHERE id = 1",
+            [],
+            |r| r.get::<_, String>(0),
+        ) {
+            if !lang.is_empty() && lang != "unknown" {
+                return Some(lang);
+            }
+        }
+
+        // 2. files 테이블에서 majority language
+        if let Ok(lang) = self.conn.query_row(
+            "SELECT language FROM files
+             WHERE language != 'unknown' AND language != ''
+             GROUP BY language
+             ORDER BY COUNT(*) DESC
+             LIMIT 1",
+            [],
+            |r| r.get::<_, String>(0),
+        ) {
+            return Some(lang);
+        }
+
+        None
+    }
+
+    /// 파일 경로에서 언어 감지 (확장자 기반)
+    pub fn detect_language_from_path(&self, path: &str) -> Option<String> {
+        let ext = std::path::Path::new(path)
+            .extension()
+            .and_then(|e| e.to_str())?;
+        match ext {
+            "py" => Some("python".to_string()),
+            "js" => Some("javascript".to_string()),
+            "ts" | "tsx" => Some("typescript".to_string()),
+            "rs" => Some("rust".to_string()),
+            "go" => Some("go".to_string()),
+            "rb" => Some("ruby".to_string()),
+            "java" => Some("java".to_string()),
+            "php" => Some("php".to_string()),
+            "jl" => Some("julia".to_string()),
+            "lua" => Some("lua".to_string()),
+            "swift" => Some("swift".to_string()),
+            "zig" => Some("zig".to_string()),
+            "scala" => Some("scala".to_string()),
+            "ex" | "exs" => Some("elixir".to_string()),
+            "dart" => Some("dart".to_string()),
+            "hs" => Some("haskell".to_string()),
+            "c" => Some("c".to_string()),
+            "cpp" | "cc" | "cxx" | "h" | "hpp" | "hxx" | "hh" => Some("cpp".to_string()),
+            "md" => Some("markdown".to_string()),
+            _ => None,
+        }
+    }
+
     // ─── Symbol Ranking ───
 
     /// 랭킹 데이터 전체 조회 (page_rank 내림차순)

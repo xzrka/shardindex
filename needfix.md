@@ -172,16 +172,35 @@ shardindex read "User" --db python.db --root /path/to/project
 
 ### BUG-012: `cross-module-move`가 Rust import 문법으로 하드코딩
 
-**파일:** `src/main.rs` (cmd_cross_module_move)  
-**상태:** ⚠️ **수정 안됨**  
-**설명:** 타겟 파일 경로를 `src/new_module/mod.rs`로 하드코딩하여 Rust 전용 import 문법을 가정함.
+**파일:** `src/graph/mod.rs` (cmd_cross_module_move), `src/database/mod.rs`  \n**상태:** ✅ **수정 완료** (2026-05-27)  \n**설명:** 타겟 파일 경로를 `src/new_module/mod.rs`로 하드코딩하여 Rust 전용 import 문법을 가정함.
 
-**재현:**
+**수정 전:**
 ```bash
 # Python 프로젝트에서 실행
-shardindex cross-module-move UserManager new_module --db python.db
-# 결과: "src/new_module/mod.rs" 경로 생성 시도
+shardindex cross-module-move UserManager services.auth --db python.db
+# 결과: "src/services/auth/mod.rs" ← Rust 전용 경로
 ```
+
+**수정 후:**
+```bash
+# Python 프로젝트에서 실행
+shardindex cross-module-move UserManager services.auth --db python.db
+# 결과: "services/auth/auth.py" ← Python 스타일
+
+# Rust 프로젝트에서 실행
+shardindex cross-module-move UserManager services.auth --db rust.db
+# 결과: "src/services/auth/mod.rs" ← Rust 스타일 유지
+
+# Go 프로젝트에서 실행
+shardindex cross-module-move UserManager services.auth --db go.db
+# 결과: "services/auth/auth.go" ← Go 스타일
+```
+
+**수정 내용:**
+1. `IndexDb::detect_project_language()` 추가 — `project` 테이블 또는 `files` 테이블에서 majority language 감지
+2. `IndexDb::detect_language_from_path()` 추가 — 파일 확장자 기반 언어 감지
+3. `graph::resolve_target_file_path()` 추가 — 언어별 파일 경로 규칙 적용 (Rust: `src/mod.rs`, Go: `module/file.go`, Java: `module/file.java`, C: `include/file.h`, etc.)
+4. `cross_module_move()`에서 하드코딩 제거 → `resolve_target_file_path()` 호출로 변경
 
 ---
 
@@ -309,10 +328,10 @@ shardindex read "User" --db contaminated.db --root /tmp/test
 || BUG-006 (Julia refs) | ⚠️ | ✅ | **수정 완료** (call_expression + named_child) |
 || BUG-007 (Haskell refs) | ⚠️ | ✅ | **수정 완료** (apply 노드 추출) |
 || BUG-008 (Scala refs) | ⚠️ | ✅ | **수정 완료** (call_expression + new 추출) |
-|| BUG-009 (Swift refs) | ⚠️ | ⚠️ | 유지 |
+||| BUG-009 (Swift refs) | ⚠️ | ✅ | **수정 완료** — `call_suffix`→`call_expression` 매칭, `navigation_expression` callee 추출 |
 || BUG-010 (Dart refs) | ⚠️ | ⚠️ | 유지 |
 | BUG-011 (qualified_name) | ⚠️ | ⚠️ | 유지 |
-| BUG-012 (cross-module-move) | ⚠️ | ⚠️ | 유지 |
+|| BUG-012 (cross-module-move) | ⚠️ | ✅ | **수정 완료** |
 | BUG-013 (migration-check) | ⚠️ | ⚠️ | 유지 |
 | BUG-014 (reindex) | — | ⚠️ | **새로 발견** |
 | BUG-015 (BLAKE3) | — | ⚠️ | **새로 발견** |

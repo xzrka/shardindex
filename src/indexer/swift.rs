@@ -52,7 +52,7 @@ impl SwiftParser {
             "import" => {
                 Self::extract_import(node, source, result);
             }
-            "call_suffix" => {
+            "call_expression" => {
                 Self::extract_call(node, source, result);
             }
             _ => {}
@@ -190,17 +190,21 @@ impl SwiftParser {
     }
 
     fn extract_call(node: &Node, source: &[u8], result: &mut ParseResult) {
-        // Swift tree-sitter 0.7.2: call_suffix has no 'function' field.
-        // The callee is the first named child (simple_identifier or member_access).
+        // call_expression: callee call_suffix
+        //   callee can be: simple_identifier | navigation_expression
         let callee_node = node.named_child(0);
         let callee = if let Some(cn) = callee_node {
             match cn.kind() {
                 "simple_identifier" => cn.utf8_text(source).ok().map(|s| s.to_string()),
-                "member_access" => {
-                    // member_access: base . identifier — get the identifier part
-                    cn.child_by_field_name("detail")
+                "navigation_expression" => {
+                    // navigation_expression: base navigation_suffix
+                    // navigation_suffix: . simple_identifier
+                    // Get the method/property name from the navigation_suffix
+                    cn.named_child(1) // navigation_suffix
+                        .and_then(|ns| ns.named_child(0)) // simple_identifier
                         .and_then(|n| n.utf8_text(source).ok())
                         .map(|s| s.to_string())
+                        .or_else(|| cn.utf8_text(source).ok().map(|s| s.to_string()))
                 }
                 _ => cn.utf8_text(source).ok().map(|s| s.to_string()),
             }
@@ -216,13 +220,6 @@ impl SwiftParser {
                     ref_kind: "call".to_string(),
                     line: node.start_position().row + 1,
                 });
-            }
-        }
-
-        let mut cursor = node.walk();
-        for child in node.children(&mut cursor) {
-            if child.kind() == "call_suffix" {
-                Self::extract_call(&child, source, result);
             }
         }
     }
