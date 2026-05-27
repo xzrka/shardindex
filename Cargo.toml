@@ -79,6 +79,10 @@ harness = false
 name = "parser_bench"
 harness = false
 
+[[bench]]
+name = "benchmarks"
+harness = false
+
 [features]
 default = []
 graphviz = ["petgraph"]

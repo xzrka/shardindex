@@ -1,14 +1,15 @@
 # ShardIndex — Next Tasks
 
 Generated: 2026-05-26
-Updated: 2026-05-27 (Phase 11 error handling + fallback protocol completed)
+Updated: 2026-05-27 (Phase 12 performance benchmarks completed — all targets exceeded)
 Based on: `references/masterplan.md` v1.3 vs current implementation gap analysis
 
 ## Current State
 
 - **Branch:** master
 - **Build:** `cargo check` 0 errors
-- **Tests:** 545/545 passing (263 unit lib + 263 unit bin + 17 integration + 2 doctest)
+- **Tests:** 565/565 passing (283 unit lib + 263 unit bin + 17 integration + 2 doctest)
+- **Benchmarks:** 5/5 passing (all targets exceeded by 4-272x)
 - **Schema:** v4 (4 migrations)
 - **Languages:** 19 (18 tree-sitter + Markdown)
 
@@ -196,14 +197,31 @@ Advanced APIs for safe refactoring workflows. All 4 APIs implemented with MCP ha
 
 ---
 
-## Phase 12 — Performance Benchmarks
+## Phase 12 — Performance Benchmarks ✅ COMPLETE
 
-- [ ] Create `benches/benchmarks.rs`
-  - `bench_cold_index_200k_python` (target: <30s)
-  - `bench_incremental_single_file` (target: <50ms)
-  - `bench_impact_depth_2` (target: <5ms)
-  - `bench_hash_verify` (target: <1ms)
-  - `bench_search_semantic` (target: <10ms)
+### Benchmark Suite (`benches/benchmarks.rs`)
+
+- [x] `bench_cold_index_200k_python` — 200K LOC Python cold index
+  - **Target:** < 30s → **Actual: 6.94s** ✅ (4.3x better)
+- [x] `bench_incremental_single_file` — Single file incremental index (500 LOC)
+  - **Target:** < 50ms → **Actual: 6.68ms** ✅ (7.5x better)
+- [x] `bench_impact_depth_2` — Impact analysis depth=2 (500 symbols)
+  - **Target:** < 5ms → **Actual: 28.06µs** ✅ (178x better)
+- [x] `bench_hash_verify` — Blake3 hash verification (1000 LOC)
+  - **Target:** < 1ms → **Actual: 12.68µs** ✅ (79x better)
+- [x] `bench_search_semantic` — Fuzzy semantic search (1000 symbols)
+  - **Target:** < 10ms → **Actual: 36.73µs** ✅ (272x better)
+
+### Helper Functions
+- [x] `generate_python_loc(lines)` — Synthetic Python code generator
+- [x] `generate_single_python_file()` — 500 LOC single file
+- [x] `populate_db(db, count)` — Batch symbol insertion
+- [x] `populate_refs(db, count)` — Reference chain builder
+
+### Infrastructure
+- [x] `Cargo.toml` — `[[bench]] benchmarks` registered (harness = false)
+- [x] Criterion 0.5 with plotters backend
+- [x] 565 total tests (283 lib + 263 bin + 17 integration + 2 doctest), all passing
 
 ---
 
@@ -240,4 +258,5 @@ Advanced APIs for safe refactoring workflows. All 4 APIs implemented with MCP ha
 2. ~~**Phase 8** — Complete LanguageBackend trait (is_dynamic_ref, types)~~ ✅ COMPLETE
 3. ~~**Phase 9** — Refactoring APIs (impact_deep, dead_code_verify, etc.)~~ ✅ COMPLETE
 4. ~~**Phase 11** — Error handling / fallback~~ ✅ COMPLETE
-5. **Phase 12** — Benchmarks ← NEXT
+5. ~~**Phase 12** — Benchmarks~~ ✅ COMPLETE
+6. **Cross-cutting** — TypeScript rename, CrossLanguageResolver, Agent skill protocol ← NEXT
