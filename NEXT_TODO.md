@@ -1,14 +1,14 @@
 # ShardIndex — Next Tasks
 
 Generated: 2026-05-26
-Updated: 2026-05-26 (Phase 9 completed)
+Updated: 2026-05-27 (HTTP handler budget enforcement completed)
 Based on: `references/masterplan.md` v1.3 vs current implementation gap analysis
 
 ## Current State
 
 - **Branch:** master
 - **Build:** `cargo check` 0 errors
-- **Tests:** 539/539 passing (261 unit lib + 261 unit bin + 17 integration)
+- **Tests:** 545/545 passing (263 unit lib + 263 unit bin + 17 integration + 2 doctest)
 - **Schema:** v4 (4 migrations)
 - **Languages:** 19 (18 tree-sitter + Markdown)
 
@@ -64,8 +64,15 @@ All 4 sub-tasks done. Token estimation, adaptive compression, TokenBudgeted MCP 
   - `stats`, `search`, `read`, `neighbors`, `impact`, `edit_plan`
   - Auto-enforce: budget exceeded → `enforce_budget()` → strip docstrings → strip signatures → remove details → truncate
   - Response metadata: `budget_requested`, `tokens_used`, `compression_applied`
+- [x] Wire into `src/mcp/mod.rs` — HTTP JSON-RPC handlers support `token_budget` param:
+  - `handle_read`, `handle_neighbors`, `handle_impact`, `handle_search`
+  - `get_token_budget()` — extract optional budget from params
+  - `apply_budget()` — enforce + wrap in `TokenBudgetedResponse` when truncated
+  - `budgeted_success()` — budget-aware response builder
+  - Within budget: attach `tokens_used` + `budget_remaining` metadata
+  - Over budget: 4-stage compression → `compression_applied` info included
 - [x] `src/main.rs` — `mod token_budget;` added (bin target)
-- [x] 14 new token_budget tests (250 total tests, up from 236)
+- [x] 14 new token_budget tests (545 total tests: 263 lib + 263 bin + 17 integration + 2 doctest)
 
 ### 4-4. Integration tests ✅ DONE
 
@@ -77,7 +84,7 @@ All 4 sub-tasks done. Token estimation, adaptive compression, TokenBudgeted MCP 
 - [x] Strategy order verification (docstrings → signatures → details → truncate)
 - [x] TokenBudgetedResponse wrapper tests (within/exceeded budget)
 - [x] TruncateResults count field consistency
-- [x] 267 total tests (250 unit + 17 integration)
+- [x] 545 total tests (263 unit + 17 integration + 2 doctest)
 
 ---
 
@@ -150,7 +157,7 @@ Advanced APIs for safe refactoring workflows. All 4 APIs implemented with MCP ha
 - [x] 4 MCP JSON-RPC routes registered in router
 - [x] 4 CLI subcommands in `src/cli/mod.rs` + handlers in `src/main.rs`
 - [x] All response types derive `Serialize`, `Deserialize`, `Clone`, `Debug`
-- [x] 539 total tests (261 lib + 261 bin + 17 integration), all passing
+- [x] 545 total tests (263 lib + 263 bin + 17 integration + 2 doctest), all passing
 
 ---
 
