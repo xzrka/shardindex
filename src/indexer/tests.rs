@@ -842,10 +842,15 @@ class User {
     for sym in &result.symbols {
         eprintln!("  - {} ({:?}) parent={:?}", sym.name, sym.kind, sym.parent);
     }
+    eprintln!("Dart refs: {}", result.references.len());
+    for ref_ in &result.references {
+        eprintln!("  - {} -> {} ({})", ref_.caller_symbol.as_deref().unwrap_or("?"), ref_.callee_symbol, ref_.ref_kind);
+    }
     
     assert!(result.symbols.iter().any(|s| s.name == "User" && s.kind == SymbolKind::Class), "User class not found");
     assert!(result.symbols.iter().any(|s| s.name == "greet"), "greet method not found");
     assert!(result.symbols.iter().any(|s| s.name == "validateEmail"), "validateEmail method not found");
+    assert!(result.references.iter().any(|r| r.callee_symbol == "contains"), "contains call not found - refs count: {}", result.references.len());
 }
 
 // ---- Haskell tests ----

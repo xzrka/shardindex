@@ -49,7 +49,7 @@ impl DartParser {
             "method_declaration" => {
                 Self::extract_method(node, source, result, parent.as_deref());
             }
-            "method_invocation" => {
+            "call_expression" => {
                 Self::extract_call(node, source, result);
             }
             "import_directive" => {
@@ -238,15 +238,35 @@ impl DartParser {
     }
 
     fn extract_call(node: &Node, source: &[u8], result: &mut ParseResult) {
-        // Dart method_invocation: the method name is in the 'method' or 'name' field.
-        // tree-sitter-dart uses 'method' for chained calls, but some versions use 'name'.
-        // Fallback: use the first named child if field lookup fails.
-        let callee = node
-            .child_by_field_name("method")
-            .or_else(|| node.child_by_field_name("name"))
-            .or_else(|| node.named_child(0))
-            .and_then(|n| n.utf8_text(source).ok())
-            .map(|s| s.to_string());
+        // Dart call_expression: callee arguments
+        //   callee can be: identifier | member_expression
+        //   member_expression: object . identifier
+        let callee_node = node.named_child(0);
+        let callee = if let Some(cn) = callee_node {
+            match cn.kind() {
+                "identifier" => cn.utf8_text(source).ok().map(|s| s.to_string()),
+                "member_expression" => {
+                    // Get the method/property name (last identifier child)
+                    cn.child_by_field_name("property")
+                        .and_then(|n| n.utf8_text(source).ok())
+                        .map(|s| s.to_string())
+                        .or_else(|| {
+                            // Fallback: last named child (the identifier after the dot)
+                            let mut cursor = cn.walk();
+                            let mut last = None;
+                            for child in cn.named_children(&mut cursor) {
+                                last = Some(child);
+                            }
+                            last.and_then(|n| n.utf8_text(source).ok()).map(|s| s.to_string())
+                        })
+                        .or_else(|| cn.utf8_text(source).ok().map(|s| s.to_string()))
+                }
+                _ => cn.utf8_text(source).ok().map(|s| s.to_string()),
+            }
+        } else {
+            None
+        };
+
         if let Some(callee) = callee {
             if !callee.is_empty() {
                 result.references.push(ParsedReference {

@@ -329,7 +329,7 @@ shardindex read "User" --db contaminated.db --root /tmp/test
 || BUG-007 (Haskell refs) | ⚠️ | ✅ | **수정 완료** (apply 노드 추출) |
 || BUG-008 (Scala refs) | ⚠️ | ✅ | **수정 완료** (call_expression + new 추출) |
 ||| BUG-009 (Swift refs) | ⚠️ | ✅ | **수정 완료** — `call_suffix`→`call_expression` 매칭, `navigation_expression` callee 추출 |
-|| BUG-010 (Dart refs) | ⚠️ | ⚠️ | 유지 |
+||| BUG-010 (Dart refs) | ⚠️ | ✅ | **수정 완료** — `method_invocation`→`call_expression`, `member_expression` callee 추출 |
 | BUG-011 (qualified_name) | ⚠️ | ⚠️ | 유지 |
 || BUG-012 (cross-module-move) | ⚠️ | ✅ | **수정 완료** |
 | BUG-013 (migration-check) | ⚠️ | ⚠️ | 유지 |
