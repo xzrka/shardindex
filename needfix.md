@@ -1,6 +1,6 @@
 # ShardIndex — Need Fix (버그 수정 목록)
 
-> 생성일: 2026-05-26 | 마지막 업데이트: 2026-05-27 (BUG-004~008 수정)  
+> 생성일: 2026-05-26 | 마지막 업데이트: 2026-05-27 (BUG-004~010 수정)  
 > 테스트 범위: 19개 언어 단일/크로스 프로젝트 테스트, CLI 명령어 전량, MCP stdio 서버(7 tools), TOON 출력, 경계 조건, cargo test(261 unit + 17 integration + 2 doctest)
 
 ---
@@ -136,22 +136,28 @@ Dart symbols: 3
 ### BUG-009: Swift에서 references가 0개 추출됨
 
 **파일:** `src/indexer/swift.rs`  
-**상태:** ⚠️ **수정 안됨** (새롭게 발견된 세부 원인)  
-**설명:** `extract_call()`이 정의되어 있고 `walk_node()`에서 `"call_expression"`을 처리하지만 refs가 0. Swift tree-sitter에서 메서드 호출이 `call_expression`이 아닌 다른 노드(kind)로 파싱될 가능성.
+**상태:** ✅ **수정 완료** (2026-05-27)  
+**설명:** `extract_call()`이 `call_suffix`를 처리했지만 Swift tree-sitter 0.7.2에서 메서드 호출은 `call_expression` 노드로 파싱됨. callee 추출도 `member_access` → `navigation_expression`으로 변경 필요.
 
-**테스트 결과:** Swift: 10 symbols, **0 refs**
+**수정:**
+1. `walk_node()`: `call_suffix` → `call_expression` 매칭
+2. `extract_call()`: `member_access` → `navigation_expression` callee 추출 (`named_child(1)` → `named_child(0)`으로 method name)
 
-**수정:** Swift의 실제 call AST 노드 kind 확인 후 match 케이스 수정.
+**테스트 결과:** Swift: 7 symbols, **6 refs** (append, first, UserManager, addUser, findUser, print)
 
 ---
 
 ### BUG-010: Dart에서 references가 0개 추출됨
 
 **파일:** `src/indexer/dart.rs`  
-**상태:** ⚠️ **수정 안됨**  
-**설명:** `method_invocation`을 처리하지만 refs가 0. 클래스 메서드가 인덱싱되지 않기 때문에 caller_symbol 연결이 안됨. BUG-003 해결 후 재검증 필요.
+**상태:** ✅ **수정 완료** (2026-05-27)  
+**설명:** `method_invocation`을 처리하지만 Dart tree-sitter 0.2.0에서 메서드 호출은 `call_expression` 노드로 파싱됨. callee도 `method`/`name` 필드가 아니라 `identifier` | `member_expression` 구조로 추출 필요.
 
-**테스트 결과:** Dart: 3 symbols, **0 refs**
+**수정:**
+1. `walk_node()`: `method_invocation` → `call_expression` 매칭
+2. `extract_call()`: `identifier` → 직접 callee, `member_expression` → `child_by_field_name("property")` 또는 마지막 named child로 method name 추출
+
+**테스트 결과:** Dart: 3 symbols, **1 refs** (contains)
 
 ---
 
@@ -297,10 +303,10 @@ shardindex read "User" --db contaminated.db --root /tmp/test
 || Julia | 1 | 6 | 0 | ✅ | BUG-006 수정 완료 (call_expression + named_child) |
 || Elixir | 1 | 8 | 6 | ✅ | — |
 || Zig | 1 | 7 | 7 | ✅ | — |
-|| Dart | 1 | 3 | 0 | ✅ | BUG-003 수정 완료 (메서드 포함) + BUG-010 |
+|| Dart | 1 | 3 | 1 | ✅ | BUG-003 수정 완료 (메서드 포함) + BUG-010 수정 완료 |
 || Haskell | 1 | 7 | 0 | ✅ | BUG-007 수정 완료 (apply 노드 추출) |
 || Scala | 1 | 9 | 0 | ✅ | BUG-008 수정 완료 (call_expression + new 추출) |
-| Swift | 1 | 10 | 0 | ⚠️ | BUG-009 (refs 없음) |
+|| Swift | 1 | 10 | 6 | ✅ | BUG-009 수정 완료 (call_expression + navigation_expression) |
 | Markdown | — | — | — | ✅ | BUG-001 수정 완료 |
 
 ### 다른 테스트
@@ -328,8 +334,8 @@ shardindex read "User" --db contaminated.db --root /tmp/test
 || BUG-006 (Julia refs) | ⚠️ | ✅ | **수정 완료** (call_expression + named_child) |
 || BUG-007 (Haskell refs) | ⚠️ | ✅ | **수정 완료** (apply 노드 추출) |
 || BUG-008 (Scala refs) | ⚠️ | ✅ | **수정 완료** (call_expression + new 추출) |
-||| BUG-009 (Swift refs) | ⚠️ | ✅ | **수정 완료** — `call_suffix`→`call_expression` 매칭, `navigation_expression` callee 추출 |
-||| BUG-010 (Dart refs) | ⚠️ | ✅ | **수정 완료** — `method_invocation`→`call_expression`, `member_expression` callee 추출 |
+|| BUG-009 (Swift refs) | ⚠️ | ✅ | **수정 완료** — `call_suffix`→`call_expression`, `navigation_expression` callee 추출 |
+|| BUG-010 (Dart refs) | ⚠️ | ✅ | **수정 완료** — `method_invocation`→`call_expression`, `member_expression` callee 추출 |
 | BUG-011 (qualified_name) | ⚠️ | ⚠️ | 유지 |
 || BUG-012 (cross-module-move) | ⚠️ | ✅ | **수정 완료** |
 | BUG-013 (migration-check) | ⚠️ | ⚠️ | 유지 |
