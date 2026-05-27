@@ -1213,7 +1213,7 @@ pub fn signature_migration_check(
 
     let compatible = breaking_callers.is_empty();
 
-    let suggestion = if param_increase && !return_changed {
+    let suggestion = if param_increase {
         format!(
             "Add new parameters as optional (with defaults) to maintain backward compatibility. {} callers affected.",
             breaking_callers.len()
