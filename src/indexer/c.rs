@@ -168,6 +168,8 @@ impl CParser {
             return;
         };
 
+        let effective_parent = parent.filter(|p| *p != name).map(|s| s.to_string());
+
         result.symbols.push(ParsedSymbol {
             name,
             kind: SymbolKind::Class,
@@ -177,7 +179,7 @@ impl CParser {
             end_col: node.end_position().column,
             signature: Some("struct".to_string()),
             docstring: None,
-            parent: parent.map(|s| s.to_string()),
+            parent: effective_parent,
         });
     }
 

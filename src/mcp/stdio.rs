@@ -303,7 +303,7 @@ impl StdioMcpServer {
                 }
             },
             {
-                "name": "read",
+                "name": "list_file_symbols",
                 "description": "List all symbols in a file. Returns symbol names, kinds, line ranges, and signatures. Use token_budget to limit response size.",
                 "inputSchema": {
                     "type": "object",
@@ -434,7 +434,7 @@ impl StdioMcpServer {
         match tool_name {
             "stats" => self.tool_stats(arguments, id, format_hint.as_deref()),
             "search" => self.tool_search(arguments, id, format_hint.as_deref()),
-            "read" => self.tool_read(arguments, id, format_hint.as_deref()),
+            "list_file_symbols" => self.tool_list_file_symbols(arguments, id, format_hint.as_deref()),
             "neighbors" => self.tool_neighbors(arguments, id, format_hint.as_deref()),
             "impact" => self.tool_impact(arguments, id, format_hint.as_deref()),
             "edit_plan" => self.tool_edit_plan(arguments, id, format_hint.as_deref()),
@@ -562,7 +562,7 @@ impl StdioMcpServer {
         }
     }
 
-    fn tool_read(
+    fn tool_list_file_symbols(
         &self,
         args: &serde_json::Value,
         id: Option<serde_json::Value>,

@@ -1,6 +1,6 @@
 # ShardIndex — Need Fix (버그 수정 목록)
 
-> 생성일: 2026-05-26 | 마지막 업데이트: 2026-05-27 (BUG-011~017 수정 진행 중)
+> 생성일: 2026-05-26 | 마지막 업데이트: 2026-05-27 (전량 수정 완료)
 > 테스트 범위: 19개 언어 단일/크로스 프로젝트 테스트, CLI 명령어 전량, MCP stdio 서버(7 tools), TOON 출력, 경계 조건, cargo test(261 unit + 17 integration + 2 doctest)
 
 ---
@@ -163,13 +163,10 @@ Dart symbols: 3
 
 ### BUG-011: `read` 명령어에서 `qualified_name` 중복
 
-**파일:** `src/main.rs` (cmd_read), `src/indexer/mod.rs`, `src/indexer/rust.rs`, `src/indexer/go.rs`  
-**상태:** ✅ **수정 완료** (2026-05-27)  
-**설명:** `read` 명령어 출력에서 클래스 심볼의 `qualified_name`이 `app.User.User`처럼 클래스명이 중복됨.
+**파일:** `src/main.rs` (cmd_read), `src/indexer/mod.rs`, `src/indexer/rust.rs`, `src/indexer/go.rs`  \n**상태:** ✅ **수정 완료** (2026-05-27)  \n**설명:** `read` 명령어 출력에서 클래스 심볼의 `qualified_name`이 `app.User.User`처럼 클래스명이 중복됨.
 
 **수정:**
-1. `build_qualified_name()`에서 parent가 name과 동일할 때 중복 방지
-2. Rust/Go 인덱서에서 self-referencing parent 방지
+1. 각 인덱서에서 `effective_parent = parent.filter(|p| *p != name)`로 self-referencing parent 방지 (Rust, Go, TypeScript, Java, C++, Dart, PHP, Scala, Ruby 등 전 언어 적용)
 
 ---
 
@@ -211,72 +208,48 @@ shardindex cross-module-move UserManager services.auth --db go.db
 
 ### BUG-013: `signature-migration-check` suggestion 메시지가 부정확
 
-**파일:** `src/main.rs` (cmd_signature_migration_check)  
-**상태:** ⚠️ **수정 안됨**  
+**파일:** `src/graph/mod.rs` (signature_migration_check)  
+**상태:** ✅ **수정 완료** (2026-05-27)  
 **설명:** 파라미터 개수 변경 시에도 "Consider keeping the old return type or providing a wrapper"라는 return type 관련 메시지가 나옴.
+
+**수정:** `param_increase` 조건을 `param_increase && !return_changed`에서 `param_increase`로 변경하여 파라미터 변경이 우선 처리되도록 함.
 
 ---
 
 ### BUG-014: `reindex`가 `--path` 없이 현재 디렉토리 전체 스캔
 
-**파일:** `src/main.rs` (cmd_reindex)  
-**상태:** ⚠️ **새로 발견**  
+**파일:** `src/main.rs` (cmd_reindex), `src/cli/mod.rs`, `src/database/mod.rs`  
+**상태:** ✅ **수정 완료** (2026-05-27)  
 **설명:** `reindex` 명령어의 `--path` 기본값이 `.`이며, DB에 저장된 프로젝트 경로 대신 현재 작업 디렉토리 전체를 스캔함. 이로 인해 `.cache/`, `.hermes/`, 시스템 라이브러리 등 수천 개의 관련 없는 파일이 인덱싱됨.
 
-**재현:**
-```bash
-# /home/kali에서 실행
-shardindex reindex --db /tmp/test.db
-# 결과: 2734 files, 9303 symbols (.cache/uv/, .hermes/ 등 포함)
-```
-
-**수정:** `reindex`가 DB에 저장된 프로젝트 메타데이터를 사용하여 초기 인덱싱 범위만 재스캔하도록 변경.
+**수정:**
+1. `init` 시 `project` 테이블에 root_path를 저장 (`upsert_project()`)
+2. `reindex` 시 DB에서 저장된 root_path를 우선 사용 (순서: `--path` > DB project 테이블 > 현재 디렉토리)
+3. `IndexDb::get_project_root()` 추가
 
 ---
 
 ### BUG-015: `verify` MCP 도구의 BLAKE3 체크섬이 DB에 저장되지 않음
 
-**파일:** `src/mcp/stdio.rs` (L698-737), `src/indexer/mod.rs`  
-**상태:** ⚠️ **새로 발견**  
-**설명:** MCP `verify` 도구가 `stored_hash: null`을 반환함. 인덱싱 시 파일의 BLAKE3 체크섬이 DB에 저장되지 않아 무결성 검증이 불가능함.
+**파일:** `src/mcp/stdio.rs` (L698-737), `src/indexer/mod.rs`  \n**상태:** ✅ **수정 완료** (2026-05-27)  \n**설명:** MCP `verify` 도구가 `stored_hash: null`을 반환함. 인덱싱 시 파일의 BLAKE3 체크섬이 DB에 저장되지 않아 무결성 검증이 불가능함.
 
-**재현:**
-```json
-// MCP verify 호출 결과
-{"file_path": "app.py", "stored_hash": null, "disk_hash": null, "status": "missing"}
-```
-
-**수정:** `index_file()` 또는 `init` 시 각 파일의 BLAKE3 체크섬을 DB의 checksum 컬럼에 저장.
+**수정:** `index_file()` 시 `blake3::hash(content.as_bytes())`로 체크섬 계산 후 `db.upsert_checksum(&relative, &hash, size)`로 DB 저장. MCP verify에서 `db.get_checksum(file_path)`로 조회.
 
 ---
 
 ### BUG-016: `read` 명령어가 DB의 상대 경로를 절대 경로로 오해함
 
-**파일:** `src/main.rs` (cmd_read)  
-**상태:** ⚠️ **새로 발견**  
-**설명:** DB에 `app.py` 같은 상대 경로로 저장된 심볼을 읽을 때 `--root` 플래그를 사용해도 DB에 다른 프로젝트의 절대 경로가 섞여 있으면(`.cache/uv/...`) 해당 파일을 읽으려 함.
+**파일:** `src/main.rs` (cmd_read)  \n**상태:** ✅ **수정 완료** (2026-05-27)  \n**설명:** DB에 `app.py` 같은 상대 경로로 저장된 심볼을 읽을 때 `--root` 플래그를 사용해도 DB에 다른 프로젝트의 절대 경로가 섞여 있으면(`.cache/uv/...`) 해당 파일을 읽으려 함.
 
-**재현:**
-```bash
-shardindex read "User" --db contaminated.db --root /tmp/test
-# Error: Failed to read source file: /tmp/test/.cache/uv/archive-v0/.../torch/...
-```
-
-**수정:** `read` 명령어가 `--root` 범위 내의 파일만 처리하도록 필터링.
+**수정:** `cmd_read`에서 `source_path = root_path.join(&sym.file_path)` 후 `!source_path.starts_with(&root_path)` 체크로 `--root` 범위 밖 파일 필터링.
 
 ---
 
 ### BUG-017: MCP `read` 도구와 CLI `read` 명령어의 기능 불일치
 
-**파일:** `src/mcp/stdio.rs`  
-**상태:** ⚠️ **새로 발견**  
-**설명:** MCP의 `read` 도구는 "List all symbols in a file" (파일 기반)이지만, CLI의 `read` 명령어는 "Read a symbol with semantic compression" (심볼 기반)임. 동일한 이름이지만 완전히 다른 기능.
+**파일:** `src/mcp/stdio.rs`  \n**상태:** ✅ **수정 완료** (2026-05-27)  \n**설명:** MCP의 `read` 도구는 "List all symbols in a file" (파일 기반)이지만, CLI의 `read` 명령어는 "Read a symbol with semantic compression" (심볼 기반)임. 동일한 이름이지만 완전히 다른 기능.
 
-**재현:**
-- MCP `read`: `{"file": "app.py"}` → 파일 내 심볼 목록 반환
-- CLI `read`: `shardindex read "User"` → 심볼의 압축된 본문 반환
-
-**수정:** MCP 도구명을 `read_file` 또는 `list_file_symbols`로 변경하여 명확히 구분.
+**수정:** MCP 도구명을 `list_file_symbols`로 변경하여 명확히 구분.
 
 ---
 
@@ -333,10 +306,10 @@ shardindex read "User" --db contaminated.db --root /tmp/test
 || BUG-008 (Scala refs) | ⚠️ | ✅ | **수정 완료** (call_expression + new 추출) |
 || BUG-009 (Swift refs) | ⚠️ | ✅ | **수정 완료** — `call_suffix`→`call_expression`, `navigation_expression` callee 추출 |
 || BUG-010 (Dart refs) | ⚠️ | ✅ | **수정 완료** — `method_invocation`→`call_expression`, `member_expression` callee 추출 |
-| BUG-011 (qualified_name) | ⚠️ | ⚠️ | 유지 |
-|| BUG-012 (cross-module-move) | ⚠️ | ✅ | **수정 완료** |
-| BUG-013 (migration-check) | ⚠️ | ⚠️ | 유지 |
-| BUG-014 (reindex) | — | ⚠️ | **새로 발견** |
-| BUG-015 (BLAKE3) | — | ⚠️ | **새로 발견** |
-| BUG-016 (read 경로) | — | ⚠️ | **새로 발견** |
-| BUG-017 (MCP/CLI 불일치) | — | ⚠️ | **새로 발견** |
+| BUG-011 (qualified_name) | ⚠️ | ✅ | **수정 완료** |
+| BUG-012 (cross-module-move) | ⚠️ | ✅ | **수정 완료** |
+| BUG-013 (migration-check) | ⚠️ | ✅ | **수정 완료** |
+| BUG-014 (reindex) | — | ✅ | **수정 완료** |
+| BUG-015 (BLAKE3) | — | ✅ | **수정 완료** |
+| BUG-016 (read 경로) | — | ✅ | **수정 완료** |
+| BUG-017 (MCP/CLI 불일치) | — | ✅ | **수정 완료** |
