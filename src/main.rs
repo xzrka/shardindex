@@ -59,7 +59,7 @@ async fn main() -> anyhow::Result<()> {
             poll_interval,
             language,
         } => cmd_daemon(&path, &db, &listen, poll_interval, &language).await?,
-        Commands::Reindex { path, language, db } => cmd_reindex(&path, &language, &db)?,
+        Commands::Reindex { path, language, db } => cmd_reindex(path.as_deref(), &language, &db)?,
         Commands::Stats { db, format } => cmd_stats(&db, format)?,
         Commands::Search { query, db, kind, language, min_score, limit, like, format } => {
             cmd_search(&db, &query, kind, language, min_score, limit, like, format)?
@@ -167,6 +167,7 @@ fn cmd_init(root: &str, language: &str, db_path: &str) -> anyhow::Result<()> {
             l.as_str()
         );
 
+        db.upsert_project(&root_path.display().to_string(), l.as_str())?;
         let mut indexer = ProjectIndexer::new(db, root_path, l)?;
         let (files, symbols, refs) = indexer.index_all()?;
 
@@ -185,6 +186,7 @@ fn cmd_init(root: &str, language: &str, db_path: &str) -> anyhow::Result<()> {
             root_path.display()
         );
 
+        db.upsert_project(&root_path.display().to_string(), "auto")?;
         let mut indexer = ProjectIndexer::new(db, root_path, dummy_lang)?;
         let summary: IndexSummary = indexer.index_all_multi()?;
 
@@ -301,10 +303,16 @@ async fn cmd_daemon(
     Ok(())
 }
 
-fn cmd_reindex(root: &str, language: &str, db_path: &str) -> anyhow::Result<()> {
-    let root_path = std::fs::canonicalize(root)?;
-    let lang = parse_language(language)?;
+fn cmd_reindex(root: Option<&str>, language: &str, db_path: &str) -> anyhow::Result<()> {
     let db = IndexDb::open(db_path)?;
+
+    // Use explicit path > DB-stored path > current directory
+    let root_str = match root {
+        Some(p) => p.to_string(),
+        None => db.get_project_root().unwrap_or_else(|| ".".to_string()),
+    };
+    let root_path = std::fs::canonicalize(&root_str)?;
+    let lang = parse_language(language)?;
 
     if let Some(l) = lang {
         let mut indexer = ProjectIndexer::new(db, root_path, l)?;

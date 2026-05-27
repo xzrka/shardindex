@@ -51,8 +51,9 @@ pub enum Commands {
 
     /// Re-index all files
     Reindex {
-        #[arg(short, long, default_value = ".")]
-        path: String,
+        /// Project root directory (default: uses path stored during init, or current directory)
+        #[arg(short, long)]
+        path: Option<String>,
 
         /// Language (default: auto — auto-detect all supported languages)
         #[arg(short, long, default_value = "auto")]

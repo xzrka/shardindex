@@ -199,6 +199,33 @@ impl IndexDb {
         })
     }
 
+    // ─── Project ───
+
+    /// 프로젝트 메타데이터 저장 (UPSERT)
+    pub fn upsert_project(&self, root_path: &str, language: &str) -> Result<(), anyhow::Error> {
+        self.conn.execute(
+            r#"INSERT INTO project (root_path, language)
+               VALUES (?1, ?2)
+               ON CONFLICT(id) DO UPDATE SET
+                 root_path = excluded.root_path,
+                 language = excluded.language,
+                 updated_at = strftime('%Y-%m-%dT%H:%M:%fZ')"#,
+            params![root_path, language],
+        )?;
+        Ok(())
+    }
+
+    /// 프로젝트 root_path 조회
+    pub fn get_project_root(&self) -> Option<String> {
+        self.conn
+            .query_row(
+                "SELECT root_path FROM project WHERE id = 1",
+                [],
+                |r| r.get::<_, String>(0),
+            )
+            .ok()
+    }
+
     // ─── File Hash ───
 
     /// 파일 해시 저장 또는 업데이트
