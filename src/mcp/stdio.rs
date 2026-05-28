@@ -38,8 +38,11 @@ struct McpError {
 #[derive(Debug, Serialize)]
 struct McpResponse {
     jsonrpc: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
     result: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     error: Option<McpError>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     id: Option<serde_json::Value>,
 }
 
