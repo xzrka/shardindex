@@ -2,3 +2,8 @@
 .shardindex.db
 .shardindex/
 *.bak
+.hermes.md
+.hermes/
+needfix.md
+NEXT_TODO.md
+references/
