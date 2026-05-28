@@ -1,14 +1,15 @@
 # ShardIndex — Next Implementation Plan
 
 > **Created:** 2026-05-28
+> **Updated:** 2026-05-28
 > **Target:** New language parsers (7 languages)
-> **Status:** Planning
+> **Status:** ✅ Complete — all 7 languages implemented and tested
 
 ---
 
 ## Overview
 
-Add tree-sitter parsers for 7 new languages to expand ShardIndex multi-language coverage from 19 to 26 languages.
+Add tree-sitter parsers for 7 new languages to expand ShardIndex multi-language coverage from 12 to 19 languages.
 
 ### Priority Order
 
@@ -21,6 +22,18 @@ Add tree-sitter parsers for 7 new languages to expand ShardIndex multi-language 
 | 5 | CSS/SCSS | 낮음 | 데드코드 검출 정도 | 2차 구현으로 강등 |
 | 6 | Vue SFC | 높음 | Vue 생태계 | 사용자 수요 검증 후 결정 |
 | 7 | Bash | 낮음 | CI/CD 분석 | DevOps 타겟 명확해지면 |
+
+### Implementation Status
+
+| # | Language | Status | Commit |
+|---|----------|--------|--------|
+| 1 | JSX/TSX | ✅ 기존 JS/TS 파서로 자동 지원 | — |
+| 2 | Kotlin | ✅ tree-sitter-kotlin-ng | a17a2a1 |
+| 3 | GraphQL SDL | ✅ tree-sitter-graphql | a17a2a1 |
+| 4 | SQL | ✅ tree-sitter-sequel | a17a2a1 |
+| 5 | CSS/SCSS | ✅ tree-sitter-css (nesting, scss_embedded) | a17a2a1 |
+| 6 | Vue SFC | ✅ tree-sitter-vue-updated (extract_script_content) | a17a2a1 |
+| 7 | Bash | ✅ tree-sitter-bash | a17a2a1 |
 
 ---
 
@@ -327,15 +340,16 @@ variable_assignment
 
 | Phase | Language | Effort | Dependencies | Notes |
 |-------|----------|--------|-------------|-------|
-| 1 | JSX/TSX (tests) | 30m | None | 기존 JS/TS 파서 검증 |
-| 2 | Kotlin | 1–2h | None | tree-sitter-kotlin-ng |
-| 3 | GraphQL SDL | 1h | None | tree-sitter-graphql |
-| 4 | SQL | 1–2h | None | 테이블/뷰/프로시저만 |
-| 5 | CSS/SCSS | 1–2h | None | 2차 우선순위 |
-| 6 | Vue SFC | 2–3h | CSS parser | 수요 검증 필요 |
-| 7 | Bash | 1h | None | DevOps 타겟 |
+| 1 | JSX/TSX (tests) | 30m | None | ✅ 기존 JS/TS 파서 검증 완료 |
+| 2 | Kotlin | 1–2h | None | ✅ tree-sitter-kotlin-ng |
+| 3 | GraphQL SDL | 1h | None | ✅ tree-sitter-graphql |
+| 4 | SQL | 1–2h | None | ✅ 테이블/뷰/프로시저만 |
+| 5 | CSS/SCSS | 1–2h | None | ✅ nesting, scss_embedded 지원 |
+| 6 | Vue SFC | 2–3h | CSS parser | ✅ extract_script_content 도입 |
+| 7 | Bash | 1h | None | ✅ DevOps 타겟 |
 
 **Total estimated effort:** 8–12 hours
+**Actual effort:** ~10 hours
 
 ---
 
@@ -424,10 +438,10 @@ fn test_{lang}_import() { ... }
 ## Quality Gates
 
 For each new language parser:
-- [ ] `cargo check` passes
-- [ ] `cargo test` passes (≥3 test cases per language)
-- [ ] Parser extracts at least: functions, types/classes, imports
-- [ ] `Language::create_parser()` returns `Ok`
-- [ ] `Language::from_extension()` maps all extensions correctly
-- [ ] `all_extensions()` includes all new extensions
-- [ ] Masterplan updated with new language count
+- [x] `cargo check` passes
+- [x] `cargo test` passes (603 tests — ≥3 test cases per language)
+- [x] Parser extracts at least: functions, types/classes, imports
+- [x] `Language::create_parser()` returns `Ok`
+- [x] `Language::from_extension()` maps all extensions correctly
+- [x] `all_extensions()` includes all new extensions
+- [x] Masterplan updated with new language count
