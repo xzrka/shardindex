@@ -1,9 +1,9 @@
 # ShardIndex — Next Implementation Plan
 
 > **Created:** 2026-05-28
-> **Updated:** 2026-05-28
+> **Updated:** 2026-05-28 (C# added)
 > **Target:** New language parsers (7 languages)
-> **Status:** ✅ Complete — all 7 languages implemented and tested
+> **Status:** ✅ Complete — 7 languages + C# (26 total)
 
 ---
 
@@ -28,6 +28,7 @@ Add tree-sitter parsers for 7 new languages to expand ShardIndex multi-language 
 | # | Language | Status | Commit |
 |---|----------|--------|--------|
 | 1 | JSX/TSX | ✅ 기존 JS/TS 파서로 자동 지원 | — |
+| 8 | C# | ✅ tree-sitter-c-shsharp | 83b9fce |
 | 2 | Kotlin | ✅ tree-sitter-kotlin-ng | a17a2a1 |
 | 3 | GraphQL SDL | ✅ tree-sitter-graphql | a17a2a1 |
 | 4 | SQL | ✅ tree-sitter-sequel | a17a2a1 |
@@ -439,7 +440,7 @@ fn test_{lang}_import() { ... }
 
 For each new language parser:
 - [x] `cargo check` passes
-- [x] `cargo test` passes (603 tests — ≥3 test cases per language)
+- [x] `cargo test` passes (605 tests — ≥3 test cases per language)
 - [x] Parser extracts at least: functions, types/classes, imports
 - [x] `Language::create_parser()` returns `Ok`
 - [x] `Language::from_extension()` maps all extensions correctly
