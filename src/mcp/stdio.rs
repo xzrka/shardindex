@@ -430,6 +430,113 @@ impl StdioMcpServer {
                     },
                     "required": ["file_path"]
                 }
+            },
+            {
+                "name": "impact_deep",
+                "description": "Deep impact analysis with transitive dependency tracing. BFS-based multi-depth impact propagation with risk scoring. Use when you need to understand the full ripple effect of changing a symbol across the entire codebase.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "symbol": {
+                            "type": "string",
+                            "description": "Symbol name to analyze"
+                        },
+                        "depth": {
+                            "type": "integer",
+                            "description": "Max BFS depth (default: 3)"
+                        },
+                        "include_tests": {
+                            "type": "boolean",
+                            "description": "Include test symbols in results (default: false)"
+                        },
+                        "include_dynamic": {
+                            "type": "boolean",
+                            "description": "Include dynamic references at risk (default: false)"
+                        },
+                        "token_budget": {
+                            "type": "integer",
+                            "description": "Maximum token count for the response"
+                        }
+                    },
+                    "required": ["symbol"]
+                }
+            },
+            {
+                "name": "dead_code_verify",
+                "description": "Multi-stage verification before deleting a symbol. Checks static refs, dynamic refs, string refs, git history, and test refs to determine if a symbol is safe to delete.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "symbol": {
+                            "type": "string",
+                            "description": "Symbol name to verify"
+                        },
+                        "stages": {
+                            "type": "array",
+                            "description": "Stages to run (default: all). Options: static_refs, dynamic_refs, string_refs, git_history, test_refs",
+                            "items": {
+                                "type": "string"
+                            }
+                        },
+                        "token_budget": {
+                            "type": "integer",
+                            "description": "Maximum token count for the response"
+                        }
+                    },
+                    "required": ["symbol"]
+                }
+            },
+            {
+                "name": "cross_module_move",
+                "description": "Analyze moving a symbol to a different module. Generates a plan of file modifications needed, including import updates. Supports dry-run mode.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "symbol": {
+                            "type": "string",
+                            "description": "Symbol name to move"
+                        },
+                        "target_module": {
+                            "type": "string",
+                            "description": "Target module path (e.g., 'new.module') for the destination"
+                        },
+                        "update_imports": {
+                            "type": "boolean",
+                            "description": "Auto-update imports (default: true)"
+                        },
+                        "dry_run": {
+                            "type": "boolean",
+                            "description": "Dry run mode (default: true)"
+                        },
+                        "token_budget": {
+                            "type": "integer",
+                            "description": "Maximum token count for the response"
+                        }
+                    },
+                    "required": ["symbol", "target_module"]
+                }
+            },
+            {
+                "name": "signature_migration_check",
+                "description": "Check if changing a function signature breaks callers. Compares the current signature with a proposed new signature and identifies breaking changes.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "symbol": {
+                            "type": "string",
+                            "description": "Symbol name to check"
+                        },
+                        "new_signature": {
+                            "type": "string",
+                            "description": "Proposed new function signature"
+                        },
+                        "token_budget": {
+                            "type": "integer",
+                            "description": "Maximum token count for the response"
+                        }
+                    },
+                    "required": ["symbol", "new_signature"]
+                }
             }
         ]);
         McpResponse::ok(id, serde_json::json!({ "tools": tools }))
@@ -464,6 +571,10 @@ impl StdioMcpServer {
             "impact" => self.tool_impact(arguments, id, format_hint.as_deref()),
             "edit_plan" => self.tool_edit_plan(arguments, id, format_hint.as_deref()),
             "verify" => self.tool_verify(arguments, id, format_hint.as_deref()),
+            "impact_deep" => self.tool_impact_deep(arguments, id, format_hint.as_deref()),
+            "dead_code_verify" => self.tool_dead_code_verify(arguments, id, format_hint.as_deref()),
+            "cross_module_move" => self.tool_cross_module_move(arguments, id, format_hint.as_deref()),
+            "signature_migration_check" => self.tool_signature_migration_check(arguments, id, format_hint.as_deref()),
             _ => McpResponse::err(id, -32601, &format!("Unknown tool: {}", tool_name)),
         }
     }
@@ -765,14 +876,205 @@ impl StdioMcpServer {
         };
 
         McpResponse::ok_with_format(
-            id,
-            &serde_json::json!({
-                "file_path": file_path,
-                "stored_hash": stored_hash,
-                "disk_hash": disk_hash,
-                "status": status
-            }),
-            format_hint,
+          id,
+          &serde_json::json!({
+              "file_path": file_path,
+              "stored_hash": stored_hash,
+              "disk_hash": disk_hash,
+              "status": status
+          }),
+          format_hint,
         )
+        }
+
+        // ─── Advanced Graph Analysis Tools ──────────────────────────────
+
+        fn tool_impact_deep(
+        &self,
+        args: &serde_json::Value,
+        id: Option<serde_json::Value>,
+        format_hint: Option<&str>,
+        ) -> McpResponse {
+        let symbol = args.get("symbol").and_then(|v| v.as_str()).unwrap_or("");
+        if symbol.is_empty() {
+          return McpResponse::err(id, -1, "Missing 'symbol' parameter");
+        }
+
+        let depth: u8 = args.get("depth").and_then(|v| v.as_u64()).unwrap_or(3) as u8;
+        let include_tests = args
+          .get("include_tests")
+          .and_then(|v| v.as_bool())
+          .unwrap_or(false);
+        let include_dynamic = args
+          .get("include_dynamic")
+          .and_then(|v| v.as_bool())
+          .unwrap_or(false);
+        let token_budget: Option<u32> = args
+            .get("token_budget")
+            .and_then(|v| v.as_u64())
+            .map(|v| v as u32);
+
+        match crate::graph::impact_deep(
+            &self.db,
+            symbol,
+            depth,
+            include_tests,
+            include_dynamic,
+            true,
+            token_budget,
+        ) {
+            Ok(result) => {
+                let json_result = serde_json::to_value(result).unwrap_or_else(
+                    |_| serde_json::json!({ "error": "Failed to serialize impact_deep result" }),
+                );
+                let tb: Option<usize> = token_budget.map(|v| v as usize);
+                McpResponse::ok_with_budget(id, &json_result, format_hint, tb)
+            }
+            Err(e) => McpResponse::err(id, -1, &format!("Impact deep error: {}", e)),
+        }
     }
-}
+
+        fn tool_dead_code_verify(
+        &self,
+        args: &serde_json::Value,
+        id: Option<serde_json::Value>,
+        format_hint: Option<&str>,
+    ) -> McpResponse {
+        let symbol = args.get("symbol").and_then(|v| v.as_str()).unwrap_or("");
+        if symbol.is_empty() {
+            return McpResponse::err(id, -1, "Missing 'symbol' parameter");
+        }
+
+        let token_budget = args
+            .get("token_budget")
+            .and_then(|v| v.as_u64())
+            .map(|v| v as usize);
+
+        let stages_raw: Vec<String> = args
+            .get("stages")
+            .and_then(|v| v.as_array())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|v| v.as_str().map(String::from))
+                    .collect()
+            })
+            .unwrap_or_else(|| {
+                vec![
+                    "static_refs".into(),
+                    "dynamic_refs".into(),
+                    "string_refs".into(),
+                    "git_history".into(),
+                    "test_refs".into(),
+                ]
+            });
+        let stages: Vec<&str> = stages_raw.iter().map(|s| s.as_str()).collect();
+
+        let min_confidence: f64 = args
+            .get("min_confidence")
+            .and_then(|v| v.as_f64())
+            .unwrap_or(0.5);
+
+        match crate::graph::dead_code_verify(&self.db, symbol, &stages, min_confidence) {
+            Ok(result) => {
+                let json_result = serde_json::to_value(result).unwrap_or_else(
+                    |_| serde_json::json!({ "error": "Failed to serialize dead_code_verify result" }),
+                );
+                McpResponse::ok_with_budget(id, &json_result, format_hint, token_budget)
+            }
+            Err(e) => McpResponse::err(id, -1, &format!("Dead code verify error: {}", e)),
+        }
+    }
+
+        fn tool_cross_module_move(
+        &self,
+        args: &serde_json::Value,
+        id: Option<serde_json::Value>,
+        format_hint: Option<&str>,
+        ) -> McpResponse {
+        let symbol = args.get("symbol").and_then(|v| v.as_str()).unwrap_or("");
+        if symbol.is_empty() {
+          return McpResponse::err(id, -1, "Missing 'symbol' parameter");
+        }
+        let target_module = args
+          .get("target_module")
+          .and_then(|v| v.as_str())
+          .unwrap_or("");
+        if target_module.is_empty() {
+          return McpResponse::err(id, -1, "Missing 'target_module' parameter");
+        }
+
+        let update_imports = args
+          .get("update_imports")
+          .and_then(|v| v.as_bool())
+          .unwrap_or(true);
+        let update_string_refs = args
+          .get("update_string_refs")
+          .and_then(|v| v.as_bool())
+          .unwrap_or(false);
+        let dry_run = args.get("dry_run").and_then(|v| v.as_bool()).unwrap_or(true);
+        let token_budget = args
+          .get("token_budget")
+          .and_then(|v| v.as_u64())
+          .map(|v| v as usize);
+
+        match crate::graph::cross_module_move(
+          &self.db,
+          symbol,
+          target_module,
+          update_imports,
+          update_string_refs,
+          dry_run,
+        ) {
+          Ok(result) => {
+              let json_result = serde_json::to_value(result).unwrap_or_else(
+                  |_| serde_json::json!({ "error": "Failed to serialize cross_module_move result" }),
+              );
+              McpResponse::ok_with_budget(id, &json_result, format_hint, token_budget)
+          }
+          Err(e) => McpResponse::err(id, -1, &format!("Cross module move error: {}", e)),
+        }
+        }
+
+        fn tool_signature_migration_check(
+        &self,
+        args: &serde_json::Value,
+        id: Option<serde_json::Value>,
+        format_hint: Option<&str>,
+        ) -> McpResponse {
+        let symbol = args.get("symbol").and_then(|v| v.as_str()).unwrap_or("");
+        if symbol.is_empty() {
+          return McpResponse::err(id, -1, "Missing 'symbol' parameter");
+        }
+        let new_signature = args
+          .get("new_signature")
+          .and_then(|v| v.as_str())
+          .unwrap_or("");
+        if new_signature.is_empty() {
+          return McpResponse::err(id, -1, "Missing 'new_signature' parameter");
+        }
+
+        let check_call_sites = args
+          .get("check_call_sites")
+          .and_then(|v| v.as_bool())
+          .unwrap_or(true);
+        let token_budget = args
+          .get("token_budget")
+          .and_then(|v| v.as_u64())
+          .map(|v| v as usize);
+
+        match crate::graph::signature_migration_check(
+          &self.db,
+          symbol,
+          new_signature,
+          check_call_sites,
+        ) {
+          Ok(result) => {
+              let json_result = serde_json::to_value(result).unwrap_or_else(
+                  |_| serde_json::json!({ "error": "Failed to serialize signature_migration_check result" }),
+              );
+              McpResponse::ok_with_budget(id, &json_result, format_hint, token_budget)
+          }
+          Err(e) => McpResponse::err(id, -1, &format!("Signature migration check error: {}", e)),
+        }
+        }
+        }
