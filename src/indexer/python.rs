@@ -464,15 +464,162 @@ impl PythonParser {
 }
 
 impl SourceCodeParser for PythonParser {
-    fn language(&self) -> &str {
-        "python"
-    }
+   fn language(&self) -> &str {
+       "python"
+   }
 
-    fn file_extensions(&self) -> &[&str] {
-        &["py"]
-    }
+   fn file_extensions(&self) -> &[&str] {
+       &["py"]
+   }
 
-    fn parse(&mut self, source: &str) -> Result<ParseResult, anyhow::Error> {
-        Self::do_parse(self, source)
-    }
+   fn parse(&mut self, source: &str) -> Result<ParseResult, anyhow::Error> {
+       Self::do_parse(self, source)
+   }
+}
+
+#[cfg(test)]
+mod tests {
+   use super::*;
+
+   // ─── is_symbol_like_path tests ───
+
+   #[test]
+   fn test_symbol_like_dotted_path() {
+       assert!(PythonParser::is_symbol_like_path("sentry.models.user.User"));
+       assert!(PythonParser::is_symbol_like_path("django.contrib.auth.models.User"));
+       assert!(PythonParser::is_symbol_like_path("my_module.MyClass"));
+   }
+
+   #[test]
+   fn test_symbol_like_single_class() {
+       assert!(PythonParser::is_symbol_like_path("User"));
+       assert!(PythonParser::is_symbol_like_path("MyClass"));
+       assert!(PythonParser::is_symbol_like_path("ForeignKey"));
+   }
+
+   #[test]
+   fn test_symbol_like_reject_whitespace() {
+       assert!(!PythonParser::is_symbol_like_path("hello world"));
+       assert!(!PythonParser::is_symbol_like_path("user not found"));
+   }
+
+   #[test]
+   fn test_symbol_like_reject_slash() {
+       assert!(!PythonParser::is_symbol_like_path("http://example.com"));
+       assert!(!PythonParser::is_symbol_like_path("/usr/local/bin"));
+   }
+
+   #[test]
+   fn test_symbol_like_reject_version() {
+       assert!(!PythonParser::is_symbol_like_path("1.0.2"));
+       assert!(!PythonParser::is_symbol_like_path("v1.2"));
+       assert!(!PythonParser::is_symbol_like_path("V2.0"));
+   }
+
+   #[test]
+   fn test_symbol_like_reject_lowercase_single() {
+       assert!(!PythonParser::is_symbol_like_path("hello"));
+       assert!(!PythonParser::is_symbol_like_path("user"));
+       assert!(!PythonParser::is_symbol_like_path("logger"));
+   }
+
+   #[test]
+   fn test_symbol_like_reject_colon() {
+       assert!(!PythonParser::is_symbol_like_path("postgres://localhost"));
+       assert!(!PythonParser::is_symbol_like_path("http:8080"));
+   }
+
+   #[test]
+   fn test_symbol_like_reject_hyphen() {
+       assert!(!PythonParser::is_symbol_like_path("my-package"));
+       assert!(!PythonParser::is_symbol_like_path("user-profile"));
+   }
+
+   #[test]
+   fn test_valid_identifier() {
+       assert!(PythonParser::is_valid_identifier("User"));
+       assert!(PythonParser::is_valid_identifier("my_class"));
+       assert!(PythonParser::is_valid_identifier("User123"));
+       assert!(!PythonParser::is_valid_identifier(""));
+       assert!(!PythonParser::is_valid_identifier("my-class"));
+       assert!(!PythonParser::is_valid_identifier("my class"));
+   }
+
+   // ─── strip_quotes tests ───
+
+   #[test]
+   fn test_strip_single_quotes() {
+       assert_eq!(PythonParser::strip_quotes("'hello'"), "hello");
+       assert_eq!(PythonParser::strip_quotes("\"hello\""), "hello");
+   }
+
+   #[test]
+   fn test_strip_triple_quotes() {
+       assert_eq!(PythonParser::strip_quotes("\"\"\"hello\"\"\""), "hello");
+       assert_eq!(PythonParser::strip_quotes("'''hello'''"), "hello");
+   }
+
+   // ─── is_noise_string tests ───
+
+   #[test]
+   fn test_noise_fstring() {
+       assert!(PythonParser::is_noise_string("f'hello {name}'"));
+       assert!(PythonParser::is_noise_string("F\"hello {name}\""));
+   }
+
+   #[test]
+   fn test_noise_bstring() {
+       assert!(PythonParser::is_noise_string("b'hello'"));
+       assert!(PythonParser::is_noise_string("B\"hello\""));
+   }
+
+   #[test]
+   fn test_not_noise_regular() {
+       assert!(!PythonParser::is_noise_string("'hello'"));
+       assert!(!PythonParser::is_noise_string("\"hello\""));
+   }
+
+   // ─── Integration: parse string literals ───
+
+   #[test]
+   fn test_parse_string_literals() {
+       let mut parser = PythonParser::new().unwrap();
+       let code = r#"
+INSTALLED_APPS = [
+   "sentry.models.User",
+   "User",
+   "hello world",
+   "http://example.com",
+   "1.0.2",
+]
+
+def foo():
+   x = ForeignKey("sentry.User")
+"#;
+       let result = parser.parse(code).unwrap();
+
+       // 심볼 유사 문자열들
+       let sym_like: Vec<_> = result
+           .string_literals
+           .iter()
+           .filter(|l| l.is_symbol_like)
+           .map(|l| l.value.as_str())
+           .collect();
+
+       assert!(sym_like.contains(&"sentry.models.User"));
+       assert!(sym_like.contains(&"User"));
+       assert!(sym_like.contains(&"sentry.User"));
+
+       // 제외된 문자열들
+       let all_values: Vec<_> = result
+           .string_literals
+           .iter()
+           .filter(|l| !l.is_symbol_like)
+           .map(|l| l.value.as_str())
+           .collect();
+
+       assert!(all_values.contains(&"hello world"));
+       assert!(all_values.contains(&"http://example.com"));
+       assert!(all_values.contains(&"1.0.2"));
+   }
 }
