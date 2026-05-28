@@ -117,14 +117,87 @@ Configure in your AI agent's MCP settings. Supported tools:
 
 | Tool | Description |
 |------|-------------|
+| `stats` | Index statistics (files, symbols, references) |
 | `search` | Fuzzy symbol search with PageRank scoring |
-| `read` | Read a symbol with semantic compression |
+| `list_file_symbols` | List all symbols in a file |
 | `neighbors` | Show caller/callee graph for a symbol |
 | `impact` | Impact analysis — symbols affected by changes |
 | `edit_plan` | Pre-edit impact validation |
 | `verify` | Blake3 file integrity verification |
-| `stats` | Index statistics |
-| `list_file_symbols` | List all symbols in a file |
+| `impact_deep` | Deep transitive impact analysis (BFS, configurable depth) |
+| `dead_code_verify` | Multi-stage dead code detection (static/dynamic/string/git/test refs) |
+| `cross_module_move` | Cross-module move analysis with import update plan |
+| `signature_migration_check` | Signature compatibility check — detect breaking changes |
+
+### System Prompt Integration
+
+Embed ShardIndex into your AI agent's system prompt for automatic codebase awareness. See `prompts/shardindex_skill_v1.md` for the full skill template.
+
+#### Agent Skill Protocol
+
+Inject this block into your agent's system prompt when ShardIndex is available:
+
+```markdown
+## ShardIndex Skill Protocol
+
+You have access to **ShardIndex**, a semantic codebase understanding engine.
+Treat it as your primary memory for code structure, NOT as an optional tool.
+
+### Hierarchy of Information Access
+
+1. **BEFORE opening any file**, query ShardIndex for relevant symbols
+2. **ALWAYS** call `impact()` before proposing edits
+3. **PREFER** `read(symbol)` over reading raw files — symbols are semantically compressed
+4. **USE** `neighbors()` to trace data flow instead of grepping
+5. **FALLBACK** to filesystem only when ShardIndex reports `index_fresh: false`
+
+### Automatic Invocation Rules
+
+| User Intent Pattern | Auto-Call Chain |
+|---|---|
+| "fix ~" / "change ~" | `impact(target)` → `read(target)` → `neighbors(target, depth=1)` |
+| "explain ~" / "what is ~" | `read(target, compression=signature_only)` |
+| "how to use ~" | `neighbors(target, direction=callees)` |
+| "bug in ~" | `search(query)` → `impact(top_result)` |
+| "refactor ~" | `impact_deep(target)` → `read(target, compression=critical_branches)` → `dead_code_verify()` |
+
+### Context Budget Awareness
+
+- Default `read()`: ~200 tokens per symbol
+- With `token_budget=4000`: you can load ~15 symbols + graph context
+- Never load full files unless explicitly requested by user
+- If a symbol exceeds budget, request `compression=signature_only`
+
+### Edit Safety Protocol
+
+Before any code modification:
+1. Call `impact()` on target symbol
+2. Call `edit_plan()` with your intended changes
+3. Wait for validation response
+4. Only execute if `valid: true` or user explicitly overrides
+5. Call `verify()` after execution
+```
+
+#### Workflow Patterns
+
+**Pattern 1: Understanding a function before editing**
+
+1. `impact(symbol="TargetFunc")` — Understand ripple effects FIRST
+2. `list_file_symbols(file="path/to/file.py")` — Get all symbols in the file
+3. `neighbors(symbol="TargetFunc", depth=1)` — See who calls it and what it calls
+
+**Pattern 2: Finding where to make a change**
+
+1. `search(query="keyword", limit=5)` — Find candidate symbols
+2. `list_file_symbols(file="candidate_file.py")` — Inspect file symbols
+3. `neighbors(symbol="Candidate", depth=1)` — Check coupling
+
+**Pattern 3: Refactoring planning**
+
+1. `stats()` — Understand codebase scale
+2. `search(query="old_name", limit=20)` — Find all instances
+3. For each: `impact(symbol=...)` — Assess change cost
+4. `edit_plan(symbol=..., changes=[...])` — Validate before executing
 
 ### Daemon (file watching)
 
