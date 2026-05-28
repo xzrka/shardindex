@@ -25,6 +25,7 @@ use std::path::Path;
 struct McpRequest {
     jsonrpc: String,
     method: String,
+    #[serde(default)]
     params: serde_json::Value,
     id: Option<serde_json::Value>,
 }
@@ -216,7 +217,7 @@ impl StdioMcpServer {
 
     fn handle_initialize(
         &self,
-        params: serde_json::Value,
+    params: serde_json::Value,
         id: Option<serde_json::Value>,
     ) -> McpResponse {
         // Negotiate preferred output format from client capabilities
@@ -424,7 +425,7 @@ impl StdioMcpServer {
 
     fn handle_tools_call(
         &self,
-        params: serde_json::Value,
+    params: serde_json::Value,
         id: Option<serde_json::Value>,
     ) -> McpResponse {
         let tool_name = params.get("name").and_then(|v| v.as_str()).unwrap_or("");
