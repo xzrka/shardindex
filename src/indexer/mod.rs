@@ -1,6 +1,7 @@
 mod r#c;
 mod bash;
 mod cpp;
+mod csharp;
 mod css;
 mod dart;
 mod elixir;
@@ -38,6 +39,7 @@ pub use types::{ParseResult, ParsedReference, ParsedSymbol, SourceCodeParser, Sy
 pub use bash::BashParser;
 pub use r#c::CParser;
 pub use cpp::CppParser;
+pub use csharp::CSharpParser;
 pub use css::CssParser;
 pub use dart::DartParser;
 pub use elixir::ElixirParser;
@@ -98,6 +100,7 @@ pub enum Language {
     Css,
     Bash,
     Kotlin,
+    CSharp,
 }
 
 impl Language {
@@ -132,6 +135,7 @@ impl Language {
             "css" | "scss" | "sass" => Some(Language::Css),
             "sh" | "bash" | "zsh" => Some(Language::Bash),
             "kt" | "kts" => Some(Language::Kotlin),
+            "cs" => Some(Language::CSharp),
             _ => None,
         }
     }
@@ -163,6 +167,7 @@ impl Language {
             Language::Css => "css",
             Language::Bash => "bash",
             Language::Kotlin => "kotlin",
+            Language::CSharp => "csharp",
         }
     }
 
@@ -194,6 +199,7 @@ impl Language {
             Language::Css => &["css", "scss", "sass"],
             Language::Bash => &["sh", "bash", "zsh"],
             Language::Kotlin => &["kt", "kts"],
+            Language::CSharp => &["cs"],
         }
     }
 
@@ -225,6 +231,7 @@ impl Language {
             Language::Css => Ok(Box::new(CssParser::new()?)),
             Language::Bash => Ok(Box::new(BashParser::new()?)),
             Language::Kotlin => Ok(Box::new(KotlinParser::new()?)),
+            Language::CSharp => Ok(Box::new(CSharpParser::new()?)),
         }
     }
 
@@ -281,6 +288,7 @@ impl Language {
             ("zsh", Language::Bash),
             ("kt", Language::Kotlin),
             ("kts", Language::Kotlin),
+            ("cs", Language::CSharp),
         ]
     }
 }
