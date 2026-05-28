@@ -57,8 +57,21 @@ impl McpResponse {
         }
     }
 
+    /// Wrap a tool result in MCP tools/call spec format:
+    /// {"content": [{"type": "text", "text": "<JSON string>"}], "isError": false}
+    fn ok_tool_result(id: Option<serde_json::Value>, result: &serde_json::Value) -> Self {
+        let text = serde_json::to_string(result).unwrap_or_else(|_| "{}".to_string());
+        Self::ok(
+            id,
+            serde_json::json!({
+                "content": [{"type": "text", "text": text}],
+                "isError": false
+            }),
+        )
+    }
+
     /// Build an MCP response with Smart YAML content when format is requested.
-    /// Returns either a standard JSON result or a text content with Smart YAML.
+    /// Returns MCP tools/call spec format with content array.
     fn ok_with_format(
         id: Option<serde_json::Value>,
         result: &serde_json::Value,
@@ -66,25 +79,24 @@ impl McpResponse {
     ) -> Self {
         let content_format = format_hint.unwrap_or("json");
 
-        match content_format {
-            "toon" | "toon-compact" => {
-                let is_compact = content_format == "toon-compact";
-                let toon_text = toon::to_toon(result, is_compact, false);
-                Self {
-                    jsonrpc: "2.0".into(),
-                    result: Some(serde_json::json!({
-                        "content": [{
-                            "type": "text",
-                            "text": toon_text
-                        }],
-                        "format": content_format
-                    })),
-                    error: None,
-                    id,
-                }
-            }
-            _ => Self::ok(id, result.clone()),
+        if content_format == "toon" || content_format == "toon-compact" {
+            let is_compact = content_format == "toon-compact";
+            let toon_text = toon::to_toon(result, is_compact, false);
+            return Self::ok_tool_text(id, &toon_text, false);
         }
+
+        Self::ok_tool_result(id, result)
+    }
+
+    /// Build a tool response with plain text in the content array.
+    fn ok_tool_text(id: Option<serde_json::Value>, text: &str, is_error: bool) -> Self {
+        Self::ok(
+            id,
+            serde_json::json!({
+                "content": [{"type": "text", "text": text}],
+                "isError": is_error
+            }),
+        )
     }
 
     fn err(id: Option<serde_json::Value>, code: i32, message: &str) -> Self {
