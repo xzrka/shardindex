@@ -128,6 +128,10 @@ pub enum Commands {
         #[arg(long, default_value = ".shardindex.db")]
         db: String,
 
+        /// Include potential string-based dynamic references
+        #[arg(long)]
+        with_string_refs: bool,
+
         /// Output format (default: text)
         #[arg(long, value_enum, default_value_t = OutputFormat::default())]
         format: OutputFormat,
@@ -225,6 +229,10 @@ pub enum Commands {
         #[arg(long, default_value = "critical_branches")]
         compression: String,
 
+        /// Include potential string-based dynamic references
+        #[arg(long)]
+        with_string_refs: bool,
+
         /// Output format (default: text)
         #[arg(long, value_enum, default_value_t = OutputFormat::default())]
         format: OutputFormat,
@@ -250,6 +258,10 @@ pub enum Commands {
         /// Include dynamic references
         #[arg(long)]
         include_dynamic: bool,
+
+        /// Include potential string-based dynamic references
+        #[arg(long)]
+        with_string_refs: bool,
 
         /// Output format (default: json)
         #[arg(long, value_enum, default_value_t = OutputFormat::Json)]

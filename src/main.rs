@@ -69,7 +69,7 @@ async fn main() -> anyhow::Result<()> {
             format,
         } => cmd_search(&db, &query, kind, language, min_score, limit, like, format)?,
         Commands::Neighbors { symbol, db, format } => cmd_neighbors(&db, &symbol, format)?,
-        Commands::Impact { symbol, db, format } => cmd_impact(&db, &symbol, format)?,
+        Commands::Impact { symbol, db, with_string_refs, format } => cmd_impact(&db, &symbol, with_string_refs, format)?,
         Commands::Graph { symbol, db, output } => {
             cmd_graph(&db, symbol.as_deref(), output.as_deref())?
         }
@@ -95,16 +95,18 @@ async fn main() -> anyhow::Result<()> {
             db,
             root,
             compression: compression_str,
+            with_string_refs,
             format,
-        } => cmd_read(&db, &root, &symbol, &compression_str, format)?,
+        } => cmd_read(&db, &root, &symbol, &compression_str, with_string_refs, format)?,
         Commands::ImpactDeep {
             symbol,
             db,
             depth,
             include_tests,
             include_dynamic,
+            with_string_refs,
             format,
-        } => cmd_impact_deep(&db, &symbol, depth, include_tests, include_dynamic, format)?,
+        } => cmd_impact_deep(&db, &symbol, depth, include_tests, include_dynamic, with_string_refs, format)?,
         Commands::DeadCodeVerify {
             symbol,
             db,
@@ -575,9 +577,15 @@ fn cmd_neighbors(db_path: &str, symbol: &str, output_format: OutputFormat) -> an
     Ok(())
 }
 
-fn cmd_impact(db_path: &str, symbol: &str, output_format: OutputFormat) -> anyhow::Result<()> {
+fn cmd_impact(db_path: &str, symbol: &str, with_string_refs: bool, output_format: OutputFormat) -> anyhow::Result<()> {
     let db = IndexDb::open(db_path)?;
     let (callers, refs) = db.impact_ranked(symbol)?;
+
+    // ── String-based dynamic refs (optional) ──
+    let mut string_refs: Vec<(i64, String, i64, f64, String)> = Vec::new();
+    if with_string_refs {
+        string_refs = db.get_potential_refs_for_symbol(symbol, 0.0)?;
+    }
 
     // 심볼 자체의 랭킹
     let own_rank = db.symbol_rank(symbol);
@@ -591,11 +599,21 @@ fn cmd_impact(db_path: &str, symbol: &str, output_format: OutputFormat) -> anyho
 
     if output_format == OutputFormat::Text {
         println!(
-            "💥 Impact analysis for '{}'{} — {} callers, {} refs",
+            "💥 Impact analysis for '{}'{} — {} callers, {} refs{}{}",
             symbol,
             own_rank_str,
             callers.len(),
-            refs.len()
+            refs.len(),
+            if with_string_refs {
+                format!(", {} string refs", string_refs.len())
+            } else {
+                String::new()
+            },
+            if with_string_refs && string_refs.is_empty() {
+                " (no potential string refs found)".to_string()
+            } else {
+                String::new()
+            }
         );
 
         if !callers.is_empty() {
@@ -608,6 +626,16 @@ fn cmd_impact(db_path: &str, symbol: &str, output_format: OutputFormat) -> anyho
                 println!(
                     "    {}:{} {} [{}]{}",
                     sym.file_path, sym.start_line, sym.name, sym.kind, rank_str
+                );
+            }
+        }
+
+        if with_string_refs && !string_refs.is_empty() {
+            println!("\n  Potential string-based refs:");
+            for (psr_id, file_path, literal_id, confidence, match_type) in &string_refs {
+                println!(
+                    "    {} conf={:.2} match={} [psr#{} lit#{}]",
+                    file_path, confidence, match_type, psr_id, literal_id
                 );
             }
         }
@@ -627,10 +655,28 @@ fn cmd_impact(db_path: &str, symbol: &str, output_format: OutputFormat) -> anyho
                 })
             })
             .collect();
+
+        // ── String refs as separate array ──
+        let string_ref_items: Vec<serde_json::Value> = string_refs
+            .iter()
+            .map(|(psr_id, file_path, literal_id, confidence, match_type)| {
+                serde_json::json!({
+                    "potential_ref_id": psr_id,
+                    "string_literal_id": literal_id,
+                    "file": file_path,
+                    "confidence": confidence,
+                    "match_type": match_type,
+                    "relationship": "potential_string_ref"
+                })
+            })
+            .collect();
+
         let json = serde_json::json!({
             "target": symbol,
             "impacted_symbols": items,
-            "impacted_count": items.len()
+            "impacted_count": items.len(),
+            "potential_string_refs": string_ref_items,
+            "potential_string_ref_count": string_ref_items.len()
         });
         print_formatted(&json, output_format);
     }
@@ -837,6 +883,7 @@ fn cmd_read(
     root: &str,
     symbol_name: &str,
     compression_str: &str,
+    with_string_refs: bool,
     output_format: OutputFormat,
 ) -> anyhow::Result<()> {
     use anyhow::Context;
@@ -864,6 +911,13 @@ fn cmd_read(
         .iter()
         .find(|s| s.qualified_name == symbol_name || s.name == symbol_name)
         .unwrap_or(&symbol[0]);
+
+    // ── String-based dynamic refs (optional) ──
+    let string_refs = if with_string_refs {
+        db.get_potential_refs_for_symbol(symbol_name, 0.0)?
+    } else {
+        Vec::new()
+    };
 
     // Filter: only process files within the --root scope
     let source_path = root_path.join(&sym.file_path);
@@ -898,6 +952,11 @@ fn cmd_read(
             compressed.estimated_tokens, sym.token_count
         );
         println!("   Compression: {}", compressed.compression_used);
+
+        if with_string_refs && !string_refs.is_empty() {
+            println!("   String refs: {} potential", string_refs.len());
+        }
+
         println!();
         println!("── {} ──", compressed.compression_used);
         println!("{}", compressed.signature);
@@ -965,6 +1024,7 @@ fn cmd_impact_deep(
     depth: u8,
     include_tests: bool,
     include_dynamic: bool,
+    with_string_refs: bool,
     output_format: OutputFormat,
 ) -> anyhow::Result<()> {
     let db = IndexDb::open(db_path)?;
@@ -977,6 +1037,13 @@ fn cmd_impact_deep(
         true,
         None,
     )?;
+
+    // ── String-based dynamic refs (optional) ──
+    let string_refs = if with_string_refs {
+        db.get_potential_refs_for_symbol(symbol, 0.0)?
+    } else {
+        Vec::new()
+    };
 
     if output_format == OutputFormat::Text {
         println!("🔍 Deep Impact Analysis: '{}'", symbol);
@@ -997,6 +1064,16 @@ fn cmd_impact_deep(
             println!("   Critical paths:");
             for path in &result.critical_paths {
                 println!("     {}", path);
+            }
+        }
+
+        if with_string_refs && !string_refs.is_empty() {
+            println!("   Potential string refs: {}", string_refs.len());
+            for (psr_id, file_path, literal_id, confidence, match_type) in &string_refs {
+                println!(
+                    "     {} conf={:.2} match={} [psr#{} lit#{}]",
+                    file_path, confidence, match_type, psr_id, literal_id
+                );
             }
         }
         if !result.test_coverage_gaps.is_empty() {

@@ -221,6 +221,10 @@ pub async fn handle_impact(params: serde_json::Value, state: ServerState) -> Jso
     }
 
     let budget = get_token_budget(&params);
+    let with_string_refs = params
+        .get("with_string_refs")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
 
     // Cache check
     if let Some(cached) = state.cache.get("impact", &params) {
@@ -234,11 +238,32 @@ pub async fn handle_impact(params: serde_json::Value, state: ServerState) -> Jso
     let db = state.db.lock().unwrap();
     match db.impact(symbol) {
         Ok((callers, refs)) => {
+            // ── String-based dynamic refs (optional) ──
+            let string_ref_items = if with_string_refs {
+                let psrs = db.get_potential_refs_for_symbol(symbol, 0.0).unwrap_or_default();
+                psrs.iter()
+                    .map(|(psr_id, file_path, literal_id, confidence, match_type)| {
+                        serde_json::json!({
+                            "potential_ref_id": psr_id,
+                            "string_literal_id": literal_id,
+                            "file": file_path,
+                            "confidence": confidence,
+                            "match_type": match_type,
+                            "relationship": "potential_string_ref"
+                        })
+                    })
+                    .collect::<Vec<_>>()
+            } else {
+                Vec::new()
+            };
+
             let result = serde_json::json!({
                 "symbol": symbol,
                 "impacted_symbols": callers,
                 "references": refs,
-                "impacted_count": callers.len()
+                "impacted_count": callers.len(),
+                "potential_string_refs": string_ref_items,
+                "potential_string_ref_count": string_ref_items.len()
             });
             let result_str = serde_json::to_string(&result).unwrap_or_default();
             let _ = state.cache.set("impact", &params, &result_str, None);
@@ -528,6 +553,10 @@ pub async fn handle_impact_deep(params: serde_json::Value, state: ServerState) -
         .get("include_dynamic")
         .and_then(|v| v.as_bool())
         .unwrap_or(false);
+    let with_string_refs: bool = params
+        .get("with_string_refs")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
     let risk_analysis: bool = params
         .get("risk_analysis")
         .and_then(|v| v.as_bool())
@@ -547,11 +576,43 @@ pub async fn handle_impact_deep(params: serde_json::Value, state: ServerState) -
         risk_analysis,
         token_budget,
     ) {
-        Ok(result) => JsonRpcResponse::success(
-            get_id(&params),
-            serde_json::to_value(result)
-                .unwrap_or_else(|_| serde_json::json!({ "error": "Failed to serialize result" })),
-        ),
+        Ok(result) => {
+            // ── String-based dynamic refs (optional) ──
+            let string_ref_items = if with_string_refs {
+                let psrs = db.get_potential_refs_for_symbol(&symbol, 0.0).unwrap_or_default();
+                psrs.iter()
+                    .map(|(psr_id, file_path, literal_id, confidence, match_type)| {
+                        serde_json::json!({
+                            "potential_ref_id": psr_id,
+                            "string_literal_id": literal_id,
+                            "file": file_path,
+                            "confidence": confidence,
+                            "match_type": match_type,
+                            "relationship": "potential_string_ref"
+                        })
+                    })
+                    .collect::<Vec<_>>()
+            } else {
+                Vec::new()
+            };
+
+            let mut result_value = serde_json::to_value(result)
+                .unwrap_or_else(|_| serde_json::json!({ "error": "Failed to serialize result" }));
+
+            // Append string refs to result
+            if let serde_json::Value::Object(ref mut map) = result_value {
+                map.insert(
+                    "potential_string_refs".to_string(),
+                    serde_json::json!(string_ref_items),
+                );
+                map.insert(
+                    "potential_string_ref_count".to_string(),
+                    serde_json::json!(string_ref_items.len()),
+                );
+            }
+
+            JsonRpcResponse::success(get_id(&params), result_value)
+        }
         Err(e) => JsonRpcResponse::error(
             get_id(&params),
             -32603,
