@@ -45,6 +45,7 @@ impl MarkdownParser {
             symbols: Vec::new(),
             references: Vec::new(),
             imports: Vec::new(),
+            string_literals: Vec::new(),
         };
 
         // Extract links first (separate pass to avoid duplicates)

@@ -31,6 +31,7 @@ impl PythonParser {
             symbols: Vec::new(),
             references: Vec::new(),
             imports: Vec::new(),
+            string_literals: Vec::new(),
         };
 
         Self::walk_node(&root, source_bytes, &mut result, None, None);
@@ -68,6 +69,9 @@ impl PythonParser {
 
         // Extract call references with caller_symbol context
         Self::extract_calls(node, source, result, current_function.as_deref());
+
+        // Extract string literals (Cross-ref Engine)
+        Self::extract_string_literals(node, source, result, current_function.as_deref());
 
         // Recurse into children
         let mut cursor = node.walk();
@@ -323,6 +327,139 @@ impl PythonParser {
             }
         }
         bases
+    }
+
+    // ─── String literal extraction (Cross-ref Engine) ───
+
+    /// 문자열 리터럴 추출 (AST walk 중에 호출)
+    fn extract_string_literals(
+        node: &Node,
+        source: &[u8],
+        result: &mut ParseResult,
+        parent_fn: Option<&str>,
+    ) {
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            if child.kind() == "string" {
+                if let Ok(raw) = child.utf8_text(source) {
+                    // f-string, b-string, r-string 제외
+                    if Self::is_noise_string(raw) {
+                        continue;
+                    }
+
+                    // docstring 위치인지 확인
+                    if Self::is_docstring_position(node, &child) {
+                        continue;
+                    }
+
+                    let inner = Self::strip_quotes(raw);
+                    let is_sym_like = Self::is_symbol_like_path(&inner);
+
+                    let context = Self::infer_string_context(&child);
+
+                    result.string_literals.push(ParsedStringLiteral {
+                        value: inner.to_string(),
+                        line: child.start_position().row + 1,
+                        col: child.start_position().column,
+                        is_symbol_like: is_sym_like,
+                        context,
+                        parent_fn: parent_fn.map(|s| s.to_string()),
+                    });
+                }
+            }
+        }
+    }
+
+    /// f-string, b-string, r-string, raw bytes 제외
+    fn is_noise_string(raw: &str) -> bool {
+        let prefix: String = raw.chars().take(3).filter(|c| *c != '"' && *c != '\'').collect();
+        prefix.starts_with('f') || prefix.starts_with('F')
+            || prefix.starts_with("b'") || prefix.starts_with("b\"")
+            || prefix.starts_with("B'") || prefix.starts_with("B\"")
+            || prefix.starts_with('b') || prefix.starts_with('B')
+    }
+
+    /// 인용부호 제거
+    fn strip_quotes(s: &str) -> &str {
+        let trimmed = s.trim();
+        // Triple quotes first
+        if trimmed.starts_with("\"\"\"") && trimmed.ends_with("\"\"\"") {
+            &trimmed[3..trimmed.len()-3]
+        } else if trimmed.starts_with("'''") && trimmed.ends_with("'''") {
+            &trimmed[3..trimmed.len()-3]
+        } else if trimmed.starts_with('\"') && trimmed.ends_with('\"') {
+            &trimmed[1..trimmed.len()-1]
+        } else if trimmed.starts_with('\'') && trimmed.ends_with('\'') {
+            &trimmed[1..trimmed.len()-1]
+        } else {
+            trimmed
+        }
+    }
+
+    /// 심볼 경로 후보인지 판단
+    /// "sentry.models.user.User" → true
+    /// "hello world" → false (공백)
+    /// "http://example.com" → false (슬래시)
+    /// "1.0.2" → false (버전 문자열)
+    /// "User" (대문자 시작) → true (클래스명 후보)
+    fn is_symbol_like_path(s: &str) -> bool {
+        // 공백, 슬래시, 하이픈, 콜론 → 즉시 false
+        if s.chars().any(|c| matches!(c, ' ' | '/' | '-' | ':')) {
+            return false;
+        }
+        // 버전 문자열 패턴: "1.0.2", "v1.2"
+        if let Some(first) = s.chars().next() {
+            if first.is_ascii_digit() || first == 'v' || first == 'V' {
+                // 숫자 시작 + 점이 있으면 버전 문자열
+                if s.contains('.') {
+                    return false;
+                }
+            }
+        }
+        // 점으로 구분된 유효한 식별자들
+        let segs: Vec<&str> = s.split('.').collect();
+        if segs.len() >= 2 {
+            return segs.iter().all(|seg| Self::is_valid_identifier(seg));
+        }
+        // 단일 식별자: 대문자 시작이면 클래스명 후보
+        if let Some(first) = s.chars().next() {
+            if first.is_uppercase() && Self::is_valid_identifier(s) {
+                return true;
+            }
+        }
+        false
+    }
+
+    fn is_valid_identifier(s: &str) -> bool {
+        if s.is_empty() {
+            return false;
+        }
+        s.chars().all(|c| c.is_alphanumeric() || c == '_')
+    }
+
+    /// 문자열의 AST 컨텍스트 추론
+    fn infer_string_context(node: &Node) -> String {
+        match node.parent().map(|n| n.kind()) {
+            Some("argument_list")    => "function_arg".to_string(),
+            Some("list")            => "sequence_element".to_string(),
+            Some("tuple")           => "sequence_element".to_string(),
+            Some("assignment")      => "assignment_rhs".to_string(),
+            Some("keyword_argument")=> "kwarg".to_string(),
+            _                       => "unknown".to_string(),
+        }
+    }
+
+    /// docstring 위치인지 확인
+    fn is_docstring_position(parent: &Node, string_node: &Node) -> bool {
+        // 함수/클래스의 첫 번째 statement가 expression_statement이고
+        // 그 안에 string이 있으면 docstring
+        if parent.kind() != "expression_statement" {
+            return false;
+        }
+        let first_child = parent.child(0);
+        first_child.map_or(false, |c| {
+            c.start_position() == string_node.start_position()
+        })
     }
 }
 

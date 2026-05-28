@@ -113,6 +113,18 @@ pub struct ParseResult {
     pub symbols: Vec<ParsedSymbol>,
     pub references: Vec<ParsedReference>,
     pub imports: Vec<(String, String, String)>,
+    pub string_literals: Vec<ParsedStringLiteral>,
+}
+
+/// Extracted string literal (candidate for symbol reference)
+#[derive(Debug, Clone)]
+pub struct ParsedStringLiteral {
+    pub value: String,
+    pub line: usize,
+    pub col: usize,
+    pub is_symbol_like: bool,
+    pub context: String,       // "function_arg" | "sequence_element" | "assignment_rhs" | "kwarg" | "unknown"
+    pub parent_fn: Option<String>,  // enclosing function name
 }
 
 // ---------------------------------------------------------------------------

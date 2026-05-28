@@ -25,6 +25,7 @@ impl VueParser {
             symbols: Vec::new(),
             references: Vec::new(),
             imports: Vec::new(),
+            string_literals: Vec::new(),
         };
 
         // Walk from root node (which is "component")

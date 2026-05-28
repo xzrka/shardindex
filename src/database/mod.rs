@@ -288,13 +288,15 @@ impl IndexDb {
 
     /// 파일의 심볼만 삭제 (재인덱싱 전 정리)
     pub fn remove_file_symbols(&self, path: &str) -> Result<(), anyhow::Error> {
-        self.conn
-            .execute("DELETE FROM symbol WHERE file_path = ?1", params![path])?;
-        self.conn.execute(
-            "DELETE FROM reference WHERE caller_file = ?1",
-            params![path],
-        )?;
-        Ok(())
+       self.conn
+           .execute("DELETE FROM symbol WHERE file_path = ?1", params![path])?;
+       self.conn.execute(
+           "DELETE FROM reference WHERE caller_file = ?1",
+           params![path],
+       )?;
+       // string_literals + potential_string_refs도 함께 삭제 (Cross-ref Engine)
+       self.remove_file_string_literals(path)?;
+       Ok(())
     }
 
     // ─── Symbols ───
@@ -1175,6 +1177,92 @@ impl IndexDb {
             .context("query overrides_for_symbol")?;
         rows.collect::<Result<Vec<_>, _>>()
             .context("collect overrides_for_symbol")
+    }
+
+    // ─── String Literals (Cross-ref Engine) ───
+
+    /// 문자열 리터럴 삽입
+    pub fn insert_string_literal(
+        &self,
+        file_path: &str,
+        line: usize,
+        col: usize,
+        value: &str,
+        is_symbol_like: bool,
+        context: &str,
+        parent_fn: Option<&str>,
+    ) -> Result<i64, anyhow::Error> {
+        self.conn.execute(
+            r#"INSERT INTO string_literals (file_path, line_number, col_start, string_value, is_symbol_like, context, parent_fn)
+               VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)"#,
+            params![file_path, line, col, value, if is_symbol_like { 1 } else { 0 }, context, parent_fn],
+        )?;
+        Ok(self.conn.last_insert_rowid())
+    }
+
+    /// 파일의 문자열 리터럴 삭제 (재인덱싱 전 정리)
+    pub fn remove_file_string_literals(&self, path: &str) -> Result<(), anyhow::Error> {
+        self.conn.execute(
+            "DELETE FROM potential_string_refs WHERE literal_id IN (SELECT id FROM string_literals WHERE file_path = ?1)",
+            params![path],
+        )?;
+        self.conn.execute(
+            "DELETE FROM string_literals WHERE file_path = ?1",
+            params![path],
+        )?;
+        Ok(())
+    }
+
+    /// 심볼 유사 문자열 리터럴 조회 (교차 매칭용)
+    pub fn get_symbol_like_literals(&self) -> Result<Vec<(i64, String, String, i32, String, Option<String>)>, anyhow::Error> {
+        // Returns: (id, file_path, string_value, line_number, context, parent_fn)
+        let mut stmt = self.conn.prepare(
+            "SELECT id, file_path, string_value, line_number, context, parent_fn
+             FROM string_literals
+             WHERE is_symbol_like = 1"
+        )?;
+        let rows = stmt.query_map(params![], |r| {
+            Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?))
+        })?;
+        rows.collect::<Result<Vec<_>, _>>().context("query symbol-like literals")
+    }
+
+    /// 잠재 문자열 참조 삽입
+    pub fn insert_potential_string_ref(
+        &self,
+        literal_id: i64,
+        target_symbol_id: i64,
+        confidence: f64,
+        match_type: &str,
+    ) -> Result<(), anyhow::Error> {
+        self.conn.execute(
+            r#"INSERT OR IGNORE INTO potential_string_refs (literal_id, target_symbol_id, confidence, match_type)
+               VALUES (?1, ?2, ?3, ?4)"#,
+            params![literal_id, target_symbol_id, confidence, match_type],
+        )?;
+        Ok(())
+    }
+
+    /// 심볼의 잠재 문자열 참조 조회
+    pub fn get_potential_refs_for_symbol(
+        &self,
+        symbol_name: &str,
+        min_confidence: f64,
+    ) -> Result<Vec<(i64, String, i64, f64, String)>, anyhow::Error> {
+        // Returns: (psr.id, file_path, literal_id, confidence, match_type)
+        let mut stmt = self.conn.prepare(
+            r#"SELECT psr.id, sl.file_path, psr.literal_id, psr.confidence, psr.match_type
+               FROM potential_string_refs psr
+               JOIN string_literals sl ON psr.literal_id = sl.id
+               JOIN symbol s ON psr.target_symbol_id = s.id
+               WHERE s.name = ?1 OR s.qualified_name = ?1
+               AND psr.confidence >= ?2
+               ORDER BY psr.confidence DESC"#
+        )?;
+        let rows = stmt.query_map(params![symbol_name, min_confidence], |r| {
+            Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?))
+        })?;
+        rows.collect::<Result<Vec<_>, _>>().context("query potential string refs")
     }
 }
 

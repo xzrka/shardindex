@@ -537,7 +537,20 @@ impl ProjectIndexer {
             ref_count += 1;
         }
 
-        debug!("{}: {} symbols, {} refs", relative, symbol_count, ref_count);
+        // Store string literals (Cross-ref Engine)
+        for lit in &result.string_literals {
+            let _id = self.db.insert_string_literal(
+                &relative,
+                lit.line,
+                lit.col,
+                &lit.value,
+                lit.is_symbol_like,
+                &lit.context,
+                lit.parent_fn.as_deref(),
+            )?;
+        }
+
+        debug!("{}: {} symbols, {} refs, {} string literals", relative, symbol_count, ref_count, result.string_literals.len());
         Ok((symbol_count, ref_count))
     }
 

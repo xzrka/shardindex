@@ -25,6 +25,7 @@ impl CssParser {
             symbols: Vec::new(),
             references: Vec::new(),
             imports: Vec::new(),
+            string_literals: Vec::new(),
         };
 
         Self::walk_node(&root, source_bytes, &mut result, None);

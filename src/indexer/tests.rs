@@ -912,8 +912,9 @@ fn test_zig_struct() {
     let code = r#"
 pub const User = struct {
     name: []const u8,
-    age: u32,
-};
+    imports: Vec::new(),
+    string_literals: Vec::new(),
+    };
 "#;
     let result = parser.parse(code).unwrap();
     assert!(result.symbols.iter().any(|s| s.name == "User"));
@@ -1155,7 +1156,6 @@ fn test_c_struct() {
     let code = r#"
 struct User {
     char *name;
-    int age;
 };
 "#;
     let result = parser.parse(code).unwrap();
@@ -1172,7 +1172,6 @@ class User {
 public:
     std::string name;
     int age;
-    void greet();
 };
 "#;
     let result = parser.parse(code).unwrap();
