@@ -31,50 +31,36 @@ impl CssParser {
         Ok(result)
     }
 
-    fn walk_node(
-        node: &Node,
-        source: &[u8],
-        result: &mut ParseResult,
-        parent: Option<String>,
-    ) {
+    fn find_child<'a>(node: &'a Node, kind: &str) -> Option<Node<'a>> {
+        let mut cursor = node.walk();
+        node.children(&mut cursor).find(|n| n.kind() == kind)
+    }
+
+    fn walk_node(node: &Node, source: &[u8], result: &mut ParseResult, parent: Option<String>) {
         match node.kind() {
-            "rule" => {
-                Self::extract_rule(node, source, result);
-            }
-            "keyframes_rule" => {
-                Self::extract_keyframes(node, source, result);
-            }
-            "import_statement" => {
-                Self::extract_import(node, source, result);
-            }
-            "custom_token" => {
-                Self::extract_custom_property(node, source, result, parent.as_deref());
-            }
-            "at_rule" => {
-                Self::extract_at_rule(node, source, result);
-            }
+            "rule_set" => Self::extract_rule_set(node, source, result),
+            "keyframes_rule" => Self::extract_keyframes(node, source, result),
+            "import_statement" => Self::extract_import(node, source, result),
             _ => {}
         }
 
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
-            let new_parent = if child.kind() == "rule" {
-                child
-                    .child_by_field_name("prelude")
+            let new_parent = match child.kind() {
+                "rule_set" | "keyframes_rule" => Self::find_child(&child, "selectors")
+                    .and_then(|s| s.child(0))
                     .and_then(|n| n.utf8_text(source).ok())
-                    .map(|s| s.to_string())
-            } else {
-                parent.clone()
+                    .map(|s| s.to_string()),
+                _ => parent.clone(),
             };
             Self::walk_node(&child, source, result, new_parent);
         }
     }
 
-    fn extract_rule(node: &Node, source: &[u8], result: &mut ParseResult) {
-        let selector = node
-            .child_by_field_name("prelude")
-            .and_then(|n| n.utf8_text(source).ok())
-            .map(|s| s.to_string());
+    fn extract_rule_set(node: &Node, source: &[u8], result: &mut ParseResult) {
+        let selector = Self::find_child(node, "selectors")
+            .and_then(|s| s.utf8_text(source).ok())
+            .map(|s| s.to_string().trim().to_string());
         let Some(selector) = selector else { return };
 
         result.symbols.push(ParsedSymbol {
@@ -91,74 +77,30 @@ impl CssParser {
     }
 
     fn extract_keyframes(node: &Node, source: &[u8], result: &mut ParseResult) {
-        let name = node
-            .child_by_field_name("name")
+        let name = Self::find_child(node, "keyframes_name")
             .and_then(|n| n.utf8_text(source).ok())
             .map(|s| s.to_string());
         let Some(name) = name else { return };
 
         result.symbols.push(ParsedSymbol {
-            name: name.clone(),
+            name,
             kind: SymbolKind::Function,
             start_line: node.start_position().row + 1,
             end_line: node.end_position().row + 1,
             start_col: node.start_position().column,
             end_col: node.end_position().column,
-            signature: Some(format!("@keyframes {}", name)),
+            signature: Some("keyframes".to_string()),
             docstring: None,
             parent: None,
         });
     }
 
     fn extract_import(node: &Node, source: &[u8], result: &mut ParseResult) {
-        if let Ok(text) = node.utf8_text(source) {
-            result.imports.push((
-                text.trim().to_string(),
-                "import".to_string(),
-                "css_import".to_string(),
-            ));
-        }
-    }
-
-    fn extract_custom_property(
-        node: &Node,
-        source: &[u8],
-        result: &mut ParseResult,
-        parent: Option<&str>,
-    ) {
-        if let Ok(name) = node.utf8_text(source) {
-            if name.starts_with("--") {
-                result.symbols.push(ParsedSymbol {
-                    name: name.trim().to_string(),
-                    kind: SymbolKind::Constant,
-                    start_line: node.start_position().row + 1,
-                    end_line: node.end_position().row + 1,
-                    start_col: node.start_position().column,
-                    end_col: node.end_position().column,
-                    signature: None,
-                    docstring: None,
-                    parent: parent.map(|s| s.to_string()),
-                });
-            }
-        }
-    }
-
-    fn extract_at_rule(node: &Node, source: &[u8], result: &mut ParseResult) {
-        if let Ok(text) = node.utf8_text(source) {
-            let trimmed = text.trim().to_string();
-            if trimmed.starts_with("@") && !trimmed.starts_with("@keyframes") {
-                result.symbols.push(ParsedSymbol {
-                    name: trimmed.clone(),
-                    kind: SymbolKind::Module,
-                    start_line: node.start_position().row + 1,
-                    end_line: node.end_position().row + 1,
-                    start_col: node.start_position().column,
-                    end_col: node.end_position().column,
-                    signature: Some(trimmed),
-                    docstring: None,
-                    parent: None,
-                });
-            }
+        if let Some(import_path) = Self::find_child(node, "string")
+            .and_then(|n| n.utf8_text(source).ok())
+            .map(|s| s.trim_matches('"').trim_matches('\'').to_string())
+        {
+            result.imports.push((import_path, String::new(), String::new()));
         }
     }
 }

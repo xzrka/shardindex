@@ -31,27 +31,19 @@ impl GraphqlParser {
         Ok(result)
     }
 
-    fn walk_node(
-        node: &Node,
-        source: &[u8],
-        result: &mut ParseResult,
-        parent: Option<String>,
-    ) {
+    fn find_child<'a>(node: &'a Node, kind: &str) -> Option<Node<'a>> {
+        let mut cursor = node.walk();
+        node.children(&mut cursor).find(|n| n.kind() == kind)
+    }
+
+    fn walk_node(node: &Node, source: &[u8], result: &mut ParseResult, parent: Option<String>) {
         match node.kind() {
-            "type_definition" => {
-                Self::extract_type(node, source, result, SymbolKind::Class);
-            }
-            "interface_definition" => {
-                Self::extract_type(node, source, result, SymbolKind::Interface);
-            }
-            "input_type_definition" => {
-                Self::extract_type(node, source, result, SymbolKind::Struct);
-            }
-            "enum_type_definition" => {
-                Self::extract_enum(node, source, result);
-            }
-            "union_type_definition" => {
-                Self::extract_union(node, source, result);
+            "object_type_definition"
+            | "interface_type_definition"
+            | "input_object_type_definition"
+            | "enum_type_definition"
+            | "union_type_definition" => {
+                Self::extract_type(node, source, result);
             }
             "scalar_type_definition" => {
                 Self::extract_scalar(node, source, result);
@@ -59,133 +51,81 @@ impl GraphqlParser {
             "directive_definition" => {
                 Self::extract_directive(node, source, result);
             }
-            "field_definition" => {
-                Self::extract_field(node, source, result, parent.as_deref());
-            }
-            "enum_value_definition" => {
-                Self::extract_enum_value(node, source, result, parent.as_deref());
-            }
-            "argument" => {
-                Self::extract_argument_ref(node, source, result);
-            }
             _ => {}
         }
 
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
             let new_parent = match child.kind() {
-                "type_definition" | "interface_definition" | "input_type_definition" | "enum_type_definition" => {
-                    child.child_by_field_name("name")
-                        .and_then(|n| n.utf8_text(source).ok())
-                        .map(|s| s.to_string())
-                }
+                "object_type_definition"
+                | "interface_type_definition"
+                | "input_object_type_definition"
+                | "enum_type_definition"
+                | "union_type_definition" => Self::find_child(&child, "name")
+                    .and_then(|n| n.utf8_text(source).ok())
+                    .map(|s| s.to_string()),
                 _ => parent.clone(),
             };
             Self::walk_node(&child, source, result, new_parent);
         }
     }
 
-    fn extract_type(
-        node: &Node,
-        source: &[u8],
-        result: &mut ParseResult,
-        kind: SymbolKind,
-    ) {
-        let name = node
-            .child_by_field_name("name")
+    fn extract_type(node: &Node, source: &[u8], result: &mut ParseResult) {
+        let name = Self::find_child(node, "name")
             .and_then(|n| n.utf8_text(source).ok())
             .map(|s| s.to_string());
         let Some(name) = name else { return };
 
-        // Check for implements
-        let mut interfaces = Vec::new();
+        let name_for_parent = name.clone();
+        let kind = node.kind();
+        let (symbol_kind, sig_prefix) = match kind {
+            "object_type_definition" => (SymbolKind::Class, "type"),
+            "interface_type_definition" => (SymbolKind::Interface, "interface"),
+            "input_object_type_definition" => (SymbolKind::Struct, "input"),
+            "enum_type_definition" => (SymbolKind::Enum, "enum"),
+            "union_type_definition" => (SymbolKind::TypeAlias, "union"),
+            _ => (SymbolKind::Class, "type"),
+        };
+
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
-            if child.kind() == "implements_interfaces" {
-                let mut ic = child.walk();
-                for iface in child.children(&mut ic) {
-                    if let Ok(iface_name) = iface.utf8_text(source) {
-                        interfaces.push(iface_name.to_string());
-                        result.references.push(ParsedReference {
-                            caller_symbol: Some(name.clone()),
-                            callee_symbol: iface_name.to_string(),
-                            ref_kind: "implements".to_string(),
-                            line: node.start_position().row + 1,
-                        });
-                    }
+            if child.kind() == "field_definition" {
+                Self::extract_field(&child, source, result, Some(&name_for_parent));
+            }
+            if child.kind() == "enum_value" {
+                if let Some(val_name) = Self::find_child(&child, "name")
+                    .and_then(|n| n.utf8_text(source).ok())
+                {
+                    result.symbols.push(ParsedSymbol {
+                        name: val_name.to_string(),
+                        kind: SymbolKind::EnumMember,
+                        start_line: child.start_position().row + 1,
+                        end_line: child.end_position().row + 1,
+                        start_col: child.start_position().column,
+                        end_col: child.end_position().column,
+                        signature: Some(val_name.to_string()),
+                        docstring: None,
+                        parent: Some(name.clone()),
+                    });
                 }
             }
         }
 
-        let sig_prefix = match kind {
-            SymbolKind::Class => "type",
-            SymbolKind::Interface => "interface",
-            SymbolKind::Struct => "input",
-            _ => "type",
-        };
-
-        let signature = if interfaces.is_empty() {
-            format!("{} {}", sig_prefix, name)
-        } else {
-            format!("{} {} implements {}", sig_prefix, name, interfaces.join(", "))
-        };
-
         result.symbols.push(ParsedSymbol {
             name: name.clone(),
-            kind,
+            kind: symbol_kind,
             start_line: node.start_position().row + 1,
             end_line: node.end_position().row + 1,
             start_col: node.start_position().column,
             end_col: node.end_position().column,
-            signature: Some(signature),
-            docstring: None,
-            parent: None,
-        });
-    }
-
-    fn extract_enum(node: &Node, source: &[u8], result: &mut ParseResult) {
-        let name = node
-            .child_by_field_name("name")
-            .and_then(|n| n.utf8_text(source).ok())
-            .map(|s| s.to_string());
-        let Some(name) = name else { return };
-
-        result.symbols.push(ParsedSymbol {
-            name: name.clone(),
-            kind: SymbolKind::Enum,
-            start_line: node.start_position().row + 1,
-            end_line: node.end_position().row + 1,
-            start_col: node.start_position().column,
-            end_col: node.end_position().column,
-            signature: Some(format!("enum {}", name)),
-            docstring: None,
-            parent: None,
-        });
-    }
-
-    fn extract_union(node: &Node, source: &[u8], result: &mut ParseResult) {
-        let name = node
-            .child_by_field_name("name")
-            .and_then(|n| n.utf8_text(source).ok())
-            .map(|s| s.to_string());
-        let Some(name) = name else { return };
-
-        result.symbols.push(ParsedSymbol {
-            name,
-            kind: SymbolKind::TypeAlias,
-            start_line: node.start_position().row + 1,
-            end_line: node.end_position().row + 1,
-            start_col: node.start_position().column,
-            end_col: node.end_position().column,
-            signature: Some(format!("union")),
+            signature: Some(format!("{} {}", sig_prefix, name)),
             docstring: None,
             parent: None,
         });
     }
 
     fn extract_scalar(node: &Node, source: &[u8], result: &mut ParseResult) {
-        let name = node
-            .child_by_field_name("name")
+        let name = Self::find_child(node, "name")
             .and_then(|n| n.utf8_text(source).ok())
             .map(|s| s.to_string());
         let Some(name) = name else { return };
@@ -197,96 +137,53 @@ impl GraphqlParser {
             end_line: node.end_position().row + 1,
             start_col: node.start_position().column,
             end_col: node.end_position().column,
-            signature: Some(format!("scalar")),
+            signature: Some("scalar".to_string()),
             docstring: None,
             parent: None,
         });
     }
 
     fn extract_directive(node: &Node, source: &[u8], result: &mut ParseResult) {
-        let name = node
-            .child_by_field_name("name")
+        let name = Self::find_child(node, "name")
             .and_then(|n| n.utf8_text(source).ok())
             .map(|s| s.to_string());
         let Some(name) = name else { return };
 
+        let name_for_sig = name.clone();
         result.symbols.push(ParsedSymbol {
             name,
-            kind: SymbolKind::Function,
+            kind: SymbolKind::Decorator,
             start_line: node.start_position().row + 1,
             end_line: node.end_position().row + 1,
             start_col: node.start_position().column,
             end_col: node.end_position().column,
-            signature: Some(format!("directive")),
+            signature: Some(format!("@{}", name_for_sig)),
             docstring: None,
             parent: None,
         });
     }
 
-    fn extract_field(
-        node: &Node,
-        source: &[u8],
-        result: &mut ParseResult,
-        parent: Option<&str>,
-    ) {
-        let name = node
-            .child_by_field_name("name")
+    fn extract_field(node: &Node, source: &[u8], result: &mut ParseResult, parent: Option<&str>) {
+        let name = Self::find_child(node, "name")
             .and_then(|n| n.utf8_text(source).ok())
             .map(|s| s.to_string());
         let Some(name) = name else { return };
 
-        let ty = node
-            .child_by_field_name("type")
-            .and_then(|t| t.utf8_text(source).ok())
-            .map(|s| s.to_string());
+        let type_text = Self::find_child(node, "type")
+            .and_then(|n| n.utf8_text(source).ok())
+            .unwrap_or("");
 
         result.symbols.push(ParsedSymbol {
-            name: name.clone(),
+            name,
             kind: SymbolKind::Field,
             start_line: node.start_position().row + 1,
             end_line: node.end_position().row + 1,
             start_col: node.start_position().column,
             end_col: node.end_position().column,
-            signature: ty.map(|t| format!("{}: {}", name, t)),
+            signature: Some(format!(": {}", type_text)),
             docstring: None,
             parent: parent.map(|s| s.to_string()),
         });
-    }
-
-    fn extract_enum_value(
-        node: &Node,
-        source: &[u8],
-        result: &mut ParseResult,
-        parent: Option<&str>,
-    ) {
-        let name = node
-            .child_by_field_name("name")
-            .and_then(|n| n.utf8_text(source).ok())
-            .map(|s| s.to_string());
-        let Some(name) = name else { return };
-
-        result.symbols.push(ParsedSymbol {
-            name,
-            kind: SymbolKind::EnumMember,
-            start_line: node.start_position().row + 1,
-            end_line: node.end_position().row + 1,
-            start_col: node.start_position().column,
-            end_col: node.end_position().column,
-            signature: None,
-            docstring: None,
-            parent: parent.map(|s| s.to_string()),
-        });
-    }
-
-    fn extract_argument_ref(node: &Node, source: &[u8], result: &mut ParseResult) {
-        if let Ok(text) = node.utf8_text(source) {
-            result.references.push(ParsedReference {
-                caller_symbol: None,
-                callee_symbol: text.to_string(),
-                ref_kind: "argument".to_string(),
-                line: node.start_position().row + 1,
-            });
-        }
     }
 }
 

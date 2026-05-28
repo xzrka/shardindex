@@ -1333,3 +1333,126 @@ fn test_is_dynamic_ref_multiple_parsers() {
     assert!(ts.is_dynamic_ref("dynamic_dispatch"));
     assert!(!ts.is_dynamic_ref("import"));
 }
+
+// ---- Debug: SQL parser ----
+// ---- SQL parser ----
+#[test]
+fn test_sql_parse() {
+    let code = r#"
+CREATE TABLE users (
+    id INTEGER PRIMARY KEY,
+    name TEXT NOT NULL
+);
+CREATE FUNCTION get_count()
+RETURNS INTEGER
+AS $$ SELECT COUNT(*) FROM users; $$;
+"#;
+    let mut parser = super::SqlParser::new().unwrap();
+    let result = parser.parse(code).unwrap();
+    assert!(!result.symbols.is_empty(), "SQL should extract at least one symbol");
+}
+
+// ---- GraphQL parser ----
+#[test]
+fn test_graphql_parse() {
+    let code = r#"
+type Query {
+    users: [User!]!
+}
+type User {
+    id: ID!
+    name: String!
+}
+"#;
+    let mut parser = super::GraphqlParser::new().unwrap();
+    let result = parser.parse(code).unwrap();
+    assert!(!result.symbols.is_empty(), "GraphQL should extract at least one symbol");
+}
+
+// ---- Vue parser ----
+#[test]
+fn test_vue_composition_api() {
+    let code = r#"<template>
+  <div id="app">{{ title }}</div>
+</template>
+<script setup>
+import { ref, computed } from 'vue';
+
+const title = ref('Hello');
+const count = ref(0);
+
+function greet() {
+  console.log(title.value);
+}
+
+const doubled = computed(() => count.value * 2);
+</script>
+<style scoped>
+#app { font-family: Arial; }
+</style>"#;
+    let mut parser = super::VueParser::new().unwrap();
+    let result = parser.parse(code).unwrap();
+    assert!(!result.symbols.is_empty(), "Vue should extract symbols from <script setup>");
+    // Should find: title, count, greet, doubled
+    let names: Vec<_> = result.symbols.iter().map(|s| s.name.as_str()).collect();
+    assert!(names.contains(&"greet"), "Should find greet function");
+    assert!(names.contains(&"title") || names.contains(&"count"), "Should find ref variables");
+}
+
+#[test]
+fn test_vue_typescript_setup() {
+    let code = r#"<template>
+  <button @click="increment">{{ count }}</button>
+</template>
+<script setup lang="ts">
+import { ref } from 'vue';
+
+interface Props {
+  initial: number;
+}
+
+const props = defineProps<Props>();
+const count = ref(props.initial);
+
+function increment() {
+  count.value++;
+}
+</script>"#;
+    let mut parser = super::VueParser::new().unwrap();
+    let result = parser.parse(code).unwrap();
+    assert!(!result.symbols.is_empty(), "Vue should extract TS symbols");
+}
+
+#[test]
+fn test_vue_options_api() {
+    // Options API - export default { ... } doesn't produce named symbols
+    // but the parser should not crash and should extract the template component
+    let code = r#"<template>
+  <App>{{ title }}</App>
+</template>
+<script>
+export default {
+  name: 'App',
+  data() { return { title: 'Hello' } }
+}
+</script>"#;
+    let mut parser = super::VueParser::new().unwrap();
+    let result = parser.parse(code).unwrap();
+    // Should at least extract the template component name
+    assert!(result.symbols.iter().any(|s| s.name.contains("App")));
+}
+
+// ---- Debug: CSS parser ----
+// ---- CSS parser ----
+#[test]
+fn test_css_parse() {
+    let code = r#"
+:root { --primary: #3498db; }
+.container { max-width: 1200px; }
+@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+"#;
+    let mut parser = super::CssParser::new().unwrap();
+    let result = parser.parse(code).unwrap();
+    assert!(!result.symbols.is_empty(), "CSS should extract at least one symbol");
+}
+

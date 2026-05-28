@@ -27,177 +27,118 @@ impl VueParser {
             imports: Vec::new(),
         };
 
-        Self::walk_node(&root, source_bytes, &mut result, None);
+        // Walk from root node (which is "component")
+        let mut cursor = root.walk();
+        for child in root.children(&mut cursor) {
+            Self::walk_component(&child, source_bytes, &mut result);
+        }
         Ok(result)
     }
 
-    fn walk_node(
-        node: &Node,
-        source: &[u8],
-        result: &mut ParseResult,
-        parent: Option<String>,
-    ) {
+    fn find_child<'a>(node: &'a Node, kind: &str) -> Option<Node<'a>> {
+        let mut cursor = node.walk();
+        node.children(&mut cursor).find(|n| n.kind() == kind)
+    }
+
+    fn walk_component(node: &Node, source: &[u8], result: &mut ParseResult) {
+        // node itself is one of: template_element, script_element, style_element
         match node.kind() {
-            "script" => {
-                // Extract <script> block content - delegate to JS/TS parser
-                Self::extract_script_block(node, source, result);
-            }
-            "template" => {
-                Self::extract_template(node, source, result);
-            }
-            "style" => {
-                Self::extract_style_block(node, source, result);
-            }
-            "custom_block" => {
-                Self::extract_custom_block(node, source, result);
-            }
-            _ => {}
-        }
+            "script_element" => {
+                let script_content = Self::extract_script_content(node, source);
+                if let Some(content) = script_content {
+                    let is_ts = content.contains("interface ")
+                        || content.contains(": string")
+                        || content.contains(": number")
+                        || content.contains(": any")
+                        || content.contains(": void");
 
-        let mut cursor = node.walk();
-        for child in node.children(&mut cursor) {
-            Self::walk_node(&child, source, result, parent.clone());
-        }
-    }
-
-    fn extract_script_block(node: &Node, source: &[u8], result: &mut ParseResult) {
-        // Check for lang attribute
-        let lang = Self::get_attribute(node, source, "lang");
-        let is_module = Self::get_attribute(node, source, "type")
-            .map(|t| t.contains("module"))
-            .unwrap_or(false);
-
-        let block_type = match (&lang, is_module) {
-            (Some(l), _) => format!("script({})", l),
-            (_, true) => "script(module)".to_string(),
-            _ => "script".to_string(),
-        };
-
-        result.symbols.push(ParsedSymbol {
-            name: block_type,
-            kind: SymbolKind::Module,
-            start_line: node.start_position().row + 1,
-            end_line: node.end_position().row + 1,
-            start_col: node.start_position().column,
-            end_col: node.end_position().column,
-            signature: Some(format!("<script>")),
-            docstring: None,
-            parent: None,
-        });
-
-        // Extract import statements from script content
-        let text = node.utf8_text(source).unwrap_or("");
-        for line in text.lines() {
-            let trimmed = line.trim();
-            if trimmed.starts_with("import ") {
-                result.references.push(ParsedReference {
-                    caller_symbol: None,
-                    callee_symbol: trimmed.to_string(),
-                    ref_kind: "import".to_string(),
-                    line: node.start_position().row + 1,
-                });
-            }
-        }
-    }
-
-    fn extract_template(node: &Node, source: &[u8], result: &mut ParseResult) {
-        result.symbols.push(ParsedSymbol {
-            name: "template".to_string(),
-            kind: SymbolKind::Module,
-            start_line: node.start_position().row + 1,
-            end_line: node.end_position().row + 1,
-            start_col: node.start_position().column,
-            end_col: node.end_position().column,
-            signature: Some("<template>".to_string()),
-            docstring: None,
-            parent: None,
-        });
-
-        // Extract v-bind and dynamic imports
-        let text = node.utf8_text(source).unwrap_or("");
-        for (line_num, line) in text.lines().enumerate() {
-            if line.contains("v-bind:require") || line.contains("@") {
-                result.references.push(ParsedReference {
-                    caller_symbol: Some("template".to_string()),
-                    callee_symbol: line.trim().to_string(),
-                    ref_kind: "template_ref".to_string(),
-                    line: node.start_position().row + 1 + line_num,
-                });
-            }
-        }
-    }
-
-    fn extract_style_block(node: &Node, source: &[u8], result: &mut ParseResult) {
-        let lang = Self::get_attribute(node, source, "lang");
-        let scoped = Self::get_attribute(node, source, "scoped").is_some();
-
-        let block_type = match (&lang, scoped) {
-            (Some(l), true) => format!("style({},scoped)", l),
-            (Some(l), false) => format!("style({})", l),
-            (_, true) => "style(scoped)".to_string(),
-            _ => "style".to_string(),
-        };
-
-        result.symbols.push(ParsedSymbol {
-            name: block_type,
-            kind: SymbolKind::Module,
-            start_line: node.start_position().row + 1,
-            end_line: node.end_position().row + 1,
-            start_col: node.start_position().column,
-            end_col: node.end_position().column,
-            signature: Some(format!("<style>")),
-            docstring: None,
-            parent: None,
-        });
-    }
-
-    fn extract_custom_block(node: &Node, source: &[u8], result: &mut ParseResult) {
-        let tag = Self::get_block_tag(node, source);
-        let name = tag.unwrap_or_else(|| "custom".to_string());
-
-        result.symbols.push(ParsedSymbol {
-            name: name.clone(),
-            kind: SymbolKind::Module,
-            start_line: node.start_position().row + 1,
-            end_line: node.end_position().row + 1,
-            start_col: node.start_position().column,
-            end_col: node.end_position().column,
-            signature: Some(format!("<{}>", name)),
-            docstring: None,
-            parent: None,
-        });
-    }
-
-    fn get_attribute(node: &Node, source: &[u8], attr_name: &str) -> Option<String> {
-        let mut cursor = node.walk();
-        for child in node.children(&mut cursor) {
-            if child.kind() == "attribute" {
-                let mut ac = child.walk();
-                for attr_child in child.children(&mut ac) {
-                    if let Ok(text) = attr_child.utf8_text(source) {
-                        if text == attr_name {
-                            // Find the value
-                            let mut vc = child.walk();
-                            for val in child.children(&mut vc) {
-                                if val.kind() == "attribute_value" {
-                                    return val.utf8_text(source).ok().map(|s| s.to_string());
+                    if is_ts {
+                        if let Ok(mut ts_parser) = super::TypeScriptParser::new() {
+                            if let Ok(ts_result) = ts_parser.parse(&content) {
+                                let line_offset = node.start_position().row;
+                                for sym in ts_result.symbols {
+                                    result.symbols.push(ParsedSymbol {
+                                        start_line: sym.start_line + line_offset,
+                                        end_line: sym.end_line + line_offset,
+                                        ..sym
+                                    });
                                 }
+                                result.references.extend(ts_result.references);
+                                result.imports.extend(ts_result.imports);
+                            }
+                        }
+                    } else {
+                        if let Ok(mut js_parser) = super::JavaScriptParser::new() {
+                            if let Ok(js_result) = js_parser.parse(&content) {
+                                let line_offset = node.start_position().row;
+                                for sym in js_result.symbols {
+                                    result.symbols.push(ParsedSymbol {
+                                        start_line: sym.start_line + line_offset,
+                                        end_line: sym.end_line + line_offset,
+                                        ..sym
+                                    });
+                                }
+                                result.references.extend(js_result.references);
+                                result.imports.extend(js_result.imports);
                             }
                         }
                     }
                 }
             }
+            "template_element" => {
+                let template_name = Self::extract_template_name(node, source);
+                if let Some(name) = template_name {
+                    result.symbols.push(ParsedSymbol {
+                        name: format!("<{}>", name),
+                        kind: SymbolKind::Class,
+                        start_line: node.start_position().row + 1,
+                        end_line: node.end_position().row + 1,
+                        start_col: node.start_position().column,
+                        end_col: node.end_position().column,
+                        signature: Some(format!("<{}>", name)),
+                        docstring: None,
+                        parent: None,
+                    });
+                }
+            }
+            "style_element" => {}
+            _ => {}
         }
-        None
     }
 
-    fn get_block_tag(node: &Node, source: &[u8]) -> Option<String> {
-        let text = node.utf8_text(source).ok()?;
-        if let Some(start) = text.find('<') {
-            if let Some(end) = text[start..].find('>') {
-                let tag = text[start + 1..start + end].trim();
-                if !tag.is_empty() {
-                    return Some(tag.to_string());
+    fn extract_script_content(node: &Node, source: &[u8]) -> Option<String> {
+        let mut cursor = node.walk();
+        let mut text_parts = Vec::new();
+
+        for child in node.children(&mut cursor) {
+            // tree-sitter-vue-updated uses "raw_text" for script/style content
+            // and "text" for template text nodes
+            if child.kind() == "raw_text" || child.kind() == "text" {
+                if let Ok(text) = child.utf8_text(source) {
+                    let trimmed = text.trim();
+                    if !trimmed.is_empty() {
+                        text_parts.push(trimmed.to_string());
+                    }
+                }
+            }
+        }
+
+        if text_parts.is_empty() {
+            None
+        } else {
+            Some(text_parts.join("\n"))
+        }
+    }
+
+    fn extract_template_name(node: &Node, source: &[u8]) -> Option<String> {
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            if child.kind() == "element" {
+                // tag_name is inside start_tag, not a direct child of element
+                if let Some(start_tag) = Self::find_child(&child, "start_tag") {
+                    return Self::find_child(&start_tag, "tag_name")
+                        .and_then(|n| n.utf8_text(source).ok())
+                        .map(|s| s.to_string());
                 }
             }
         }
