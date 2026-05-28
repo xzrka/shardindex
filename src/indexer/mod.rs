@@ -1,12 +1,16 @@
 mod r#c;
+mod bash;
 mod cpp;
+mod css;
 mod dart;
 mod elixir;
+mod graphql;
 mod r#go;
 mod haskell;
 mod java;
 mod javascript;
 mod julia;
+mod kotlin;
 mod lua;
 mod markdown;
 mod php;
@@ -14,10 +18,12 @@ mod python;
 mod ruby;
 mod r#rust;
 mod scala;
+mod sql;
 mod swift;
 #[cfg(test)]
 mod tests;
 mod r#typescript;
+mod vue;
 /// Indexer engine — file scan → Blake3 hash → AST parsing → DB storage
 ///
 /// Incremental indexing: only reparse changed files. Supports multiple languages.
@@ -29,15 +35,19 @@ mod zig;
 #[allow(unused_imports)]
 pub use types::{ParseResult, ParsedReference, ParsedSymbol, SourceCodeParser, SymbolKind};
 // Re-export language parsers
+pub use bash::BashParser;
 pub use r#c::CParser;
 pub use cpp::CppParser;
+pub use css::CssParser;
 pub use dart::DartParser;
 pub use elixir::ElixirParser;
+pub use graphql::GraphqlParser;
 pub use r#go::GoParser;
 pub use haskell::HaskellParser;
 pub use java::JavaParser;
 pub use javascript::JavaScriptParser;
 pub use julia::JuliaParser;
+pub use kotlin::KotlinParser;
 pub use lua::LuaParser;
 pub use markdown::MarkdownParser;
 pub use php::PhpParser;
@@ -45,8 +55,10 @@ pub use python::PythonParser;
 pub use ruby::RubyParser;
 pub use r#rust::RustParser;
 pub use scala::ScalaParser;
+pub use sql::SqlParser;
 pub use swift::SwiftParser;
 pub use r#typescript::TypeScriptParser;
+pub use vue::VueParser;
 pub use zig::ZigParser;
 
 use anyhow::Context;
@@ -80,6 +92,12 @@ pub enum Language {
     C,
     Cpp,
     Markdown,
+    Sql,
+    Graphql,
+    Vue,
+    Css,
+    Bash,
+    Kotlin,
 }
 
 impl Language {
@@ -108,6 +126,12 @@ impl Language {
             "c" | "h" => Some(Language::C),
             "cpp" | "hpp" | "cc" | "cxx" | "hxx" | "hh" => Some(Language::Cpp),
             "md" | "markdown" | "mdown" | "mkd" => Some(Language::Markdown),
+            "sql" => Some(Language::Sql),
+            "graphql" | "gql" => Some(Language::Graphql),
+            "vue" => Some(Language::Vue),
+            "css" | "scss" | "sass" => Some(Language::Css),
+            "sh" | "bash" | "zsh" => Some(Language::Bash),
+            "kt" | "kts" => Some(Language::Kotlin),
             _ => None,
         }
     }
@@ -133,6 +157,12 @@ impl Language {
             Language::C => "c",
             Language::Cpp => "cpp",
             Language::Markdown => "markdown",
+            Language::Sql => "sql",
+            Language::Graphql => "graphql",
+            Language::Vue => "vue",
+            Language::Css => "css",
+            Language::Bash => "bash",
+            Language::Kotlin => "kotlin",
         }
     }
 
@@ -158,6 +188,12 @@ impl Language {
             Language::C => &["c", "h"],
             Language::Cpp => &["cpp", "hpp", "cc", "cxx", "hxx", "hh", "h"],
             Language::Markdown => &["md", "markdown", "mdown", "mkd"],
+            Language::Sql => &["sql"],
+            Language::Graphql => &["graphql", "gql"],
+            Language::Vue => &["vue"],
+            Language::Css => &["css", "scss", "sass"],
+            Language::Bash => &["sh", "bash", "zsh"],
+            Language::Kotlin => &["kt", "kts"],
         }
     }
 
@@ -183,6 +219,12 @@ impl Language {
             Language::C => Ok(Box::new(CParser::new()?)),
             Language::Cpp => Ok(Box::new(CppParser::new()?)),
             Language::Markdown => Ok(Box::new(MarkdownParser::new()?)),
+            Language::Sql => Ok(Box::new(SqlParser::new()?)),
+            Language::Graphql => Ok(Box::new(GraphqlParser::new()?)),
+            Language::Vue => Ok(Box::new(VueParser::new()?)),
+            Language::Css => Ok(Box::new(CssParser::new()?)),
+            Language::Bash => Ok(Box::new(BashParser::new()?)),
+            Language::Kotlin => Ok(Box::new(KotlinParser::new()?)),
         }
     }
 
@@ -227,6 +269,18 @@ impl Language {
             ("markdown", Language::Markdown),
             ("mdown", Language::Markdown),
             ("mkd", Language::Markdown),
+            ("sql", Language::Sql),
+            ("graphql", Language::Graphql),
+            ("gql", Language::Graphql),
+            ("vue", Language::Vue),
+            ("css", Language::Css),
+            ("scss", Language::Css),
+            ("sass", Language::Css),
+            ("sh", Language::Bash),
+            ("bash", Language::Bash),
+            ("zsh", Language::Bash),
+            ("kt", Language::Kotlin),
+            ("kts", Language::Kotlin),
         ]
     }
 }

@@ -202,6 +202,157 @@ response.json();
     assert!(!calls.is_empty());
 }
 
+// ---- JSX tests (via JavaScript parser) ----
+
+#[test]
+fn test_jsx_function_component() {
+    let code = r#"
+function App() {
+    return <div className="app"><h1>Hello</h1></div>;
+}
+"#;
+    let result = test_parse_js(code);
+    let funcs: Vec<_> = result
+        .symbols
+        .iter()
+        .filter(|s| s.kind == SymbolKind::Function)
+        .collect();
+    assert_eq!(funcs.len(), 1);
+    assert_eq!(funcs[0].name, "App");
+}
+
+#[test]
+fn test_jsx_arrow_component() {
+    let code = r#"
+const Button = ({ label, onClick }) => (
+    <button onClick={onClick}>{label}</button>
+);
+"#;
+    let result = test_parse_js(code);
+    let vars: Vec<_> = result
+        .symbols
+        .iter()
+        .filter(|s| s.kind == SymbolKind::Variable)
+        .collect();
+    assert!(!vars.is_empty());
+    assert_eq!(vars[0].name, "Button");
+}
+
+#[test]
+fn test_jsx_class_component() {
+    let code = r#"
+class Counter extends Component {
+    render() {
+        return <div>{this.state.count}</div>;
+    }
+}
+"#;
+    let result = test_parse_js(code);
+    let classes: Vec<_> = result
+        .symbols
+        .iter()
+        .filter(|s| s.kind == SymbolKind::Class)
+        .collect();
+    assert_eq!(classes.len(), 1);
+    assert_eq!(classes[0].name, "Counter");
+
+    // Component inheritance
+    let inherits: Vec<_> = result
+        .references
+        .iter()
+        .filter(|r| r.ref_kind == "inherit")
+        .collect();
+    assert!(!inherits.is_empty());
+    assert_eq!(inherits[0].callee_symbol, "Component");
+}
+
+#[test]
+fn test_jsx_hooks() {
+    let code = r#"
+function User({ id }) {
+    const [name, setName] = useState('');
+    const data = useQuery(id);
+    useEffect(() => { console.log('mounted'); }, []);
+    return <div>{name}</div>;
+}
+"#;
+    let result = test_parse_js(code);
+    let funcs: Vec<_> = result
+        .symbols
+        .iter()
+        .filter(|s| s.kind == SymbolKind::Function)
+        .collect();
+    assert_eq!(funcs.len(), 1);
+    assert_eq!(funcs[0].name, "User");
+
+    // Hook calls should be captured as references
+    let calls: Vec<_> = result
+        .references
+        .iter()
+        .filter(|r| r.ref_kind == "call")
+        .collect();
+    assert!(!calls.is_empty());
+}
+
+// ---- TSX tests (via TypeScript parser) ----
+
+#[test]
+fn test_tsx_function_component() {
+    let mut parser = TypeScriptParser::new().unwrap();
+    let code = r#"
+interface Props { name: string; count: number; }
+
+function Greeting({ name, count }: Props) {
+    return <span>Hello {name} x {count}</span>;
+}
+"#;
+    let result = parser.parse(code).unwrap();
+    let funcs: Vec<_> = result
+        .symbols
+        .iter()
+        .filter(|s| s.kind == SymbolKind::Function)
+        .collect();
+    assert!(!funcs.is_empty());
+    assert!(funcs.iter().any(|f| f.name == "Greeting"));
+}
+
+#[test]
+fn test_tsx_interface() {
+    let mut parser = TypeScriptParser::new().unwrap();
+    let code = r#"
+interface UserProps {
+    id: number;
+    name: string;
+    avatar?: string;
+}
+
+function User({ id, name }: UserProps) {
+    return <div id={id}>{name}</div>;
+}
+"#;
+    let result = parser.parse(code).unwrap();
+    let interfaces: Vec<_> = result
+        .symbols
+        .iter()
+        .filter(|s| s.name == "UserProps")
+        .collect();
+    assert!(!interfaces.is_empty());
+}
+
+#[test]
+fn test_tsx_generic_component() {
+    let mut parser = TypeScriptParser::new().unwrap();
+    let code = r#"
+type Result<T> = { ok: boolean; value: T };
+
+function Display<T>({ value }: { value: T }) {
+    return <div>{String(value)}</div>;
+}
+"#;
+    let result = parser.parse(code).unwrap();
+    assert!(result.symbols.iter().any(|s| s.name == "Display"));
+}
+
 // ---- Trait tests ----
 
 #[test]

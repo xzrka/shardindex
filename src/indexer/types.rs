@@ -25,6 +25,11 @@ pub enum SymbolKind {
     CodeBlock,
     Link,
     Table,
+    Constant,
+    Interface,
+    Struct,
+    Field,
+    EnumMember,
 }
 
 impl SymbolKind {
@@ -44,6 +49,11 @@ impl SymbolKind {
             SymbolKind::CodeBlock => "code_block",
             SymbolKind::Link => "link",
             SymbolKind::Table => "table",
+            SymbolKind::Constant => "constant",
+            SymbolKind::Interface => "interface",
+            SymbolKind::Struct => "struct",
+            SymbolKind::Field => "field",
+            SymbolKind::EnumMember => "enum_member",
         }
     }
 }
