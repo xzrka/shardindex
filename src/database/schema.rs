@@ -12,7 +12,7 @@ use anyhow::Context;
 use rusqlite::Connection;
 
 /// 현재 스키마 버전 (모노토닉 증가)
-pub const CURRENT_SCHEMA_VERSION: i32 = 4;
+pub const CURRENT_SCHEMA_VERSION: i32 = 5;
 
 /// Migration 001: Initial schema (기존 스키마 유지)
 const MIGRATION_001_INITIAL: &str = r#"
@@ -290,12 +290,53 @@ ALTER TABLE reference ADD COLUMN is_dynamic INTEGER NOT NULL DEFAULT 0;
 CREATE INDEX IF NOT EXISTS idx_ref_confidence ON reference(confidence) WHERE confidence < 1.0;
 "#;
 
+/// Migration 005: String literals + potential string refs (Cross-ref Engine)
+///
+/// Two new tables for string-based dynamic reference detection:
+/// 1. string_literals — collected string literals from AST parsing
+/// 2. potential_string_refs — cross-matched string literal → symbol pairs with confidence
+const MIGRATION_005_STRING_REFS: &str = r#"
+-- ============================================================
+-- 9. string_literals 테이블 (문자열 리터럴 수집)
+-- ============================================================
+CREATE TABLE IF NOT EXISTS string_literals (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    file_path       TEXT NOT NULL REFERENCES file_hash(path) ON DELETE CASCADE,
+    line_number     INTEGER NOT NULL,
+    col_start       INTEGER NOT NULL,
+    string_value    TEXT NOT NULL,
+    is_symbol_like  INTEGER NOT NULL DEFAULT 0,
+    context         TEXT,           -- "function_arg" | "sequence_element" | "assignment_rhs" | "kwarg" | "unknown"
+    parent_fn       TEXT            -- enclosing function name (false positive 필터용)
+);
+
+CREATE INDEX IF NOT EXISTS idx_sl_file      ON string_literals(file_path);
+CREATE INDEX IF NOT EXISTS idx_sl_value     ON string_literals(string_value);
+CREATE INDEX IF NOT EXISTS idx_sl_sym_like  ON string_literals(is_symbol_like, string_value);
+
+-- ============================================================
+-- 10. potential_string_refs 테이블 (문자열 → 심볼 매칭 결과)
+-- ============================================================
+CREATE TABLE IF NOT EXISTS potential_string_refs (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    literal_id          INTEGER NOT NULL REFERENCES string_literals(id) ON DELETE CASCADE,
+    target_symbol_id    INTEGER NOT NULL REFERENCES symbol(id) ON DELETE CASCADE,
+    confidence          REAL NOT NULL,
+    match_type          TEXT NOT NULL,  -- "exact_fq" | "module_scope" | "import_scope" | "method_ref"
+    UNIQUE(literal_id, target_symbol_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_psr_target   ON potential_string_refs(target_symbol_id);
+CREATE INDEX IF NOT EXISTS idx_psr_conf     ON potential_string_refs(confidence);
+"#;
+
 /// 마이그레이션 정의: (버전, 이름, SQL)
 const MIGRATIONS: &[(i32, &str, &str)] = &[
     (1, "initial", MIGRATION_001_INITIAL),
     (2, "masterplan-v1.1", MIGRATION_002_MASTERPLAN),
     (3, "override-registry", MIGRATION_003_OVERRIDES),
     (4, "confidence-scoring", MIGRATION_004_CONFIDENCE),
+    (5, "string-refs", MIGRATION_005_STRING_REFS),
 ];
 
 /// 현재 스키마 버전 조회 (versions 테이블에서)
@@ -409,6 +450,8 @@ mod tests {
         assert!(tables.contains(&"file_imports".to_string()));
         assert!(tables.contains(&"project".to_string()));
         assert!(tables.contains(&"file_hash".to_string()));
+        assert!(tables.contains(&"string_literals".to_string()));
+        assert!(tables.contains(&"potential_string_refs".to_string()));
     }
 
     #[test]
