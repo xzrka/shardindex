@@ -6,7 +6,7 @@ ShardIndex sits between a codebase and an LLM agent, transforming file-level, gr
 
 ## Key Features
 
-- **19-language support** — Python, JavaScript, TypeScript, Rust, Go, Ruby, Java, PHP, Julia, Lua, Swift, Zig, Scala, Elixir, Dart, Haskell, C++, C, Markdown
+- **26-language support** — Python, JavaScript/JSX, TypeScript/TSX, Rust, Go, Ruby, Java, PHP, Julia, Lua, Swift, Zig, Scala, Elixir, Dart, Haskell, C, C++, Markdown, SQL, GraphQL, Vue, CSS/SCSS, Bash, Kotlin, C#
 - **Symbol-level indexing** — Extract functions, classes, methods, traits, interfaces, enums, structs, etc. with full signatures and docstrings
 - **Reference graph** — Caller/callee relationships with confidence scoring for dynamic references
 - **Impact analysis** — Determine all symbols affected before making edits (shallow and deep/transitive)
@@ -21,7 +21,7 @@ ShardIndex sits between a codebase and an LLM agent, transforming file-level, gr
 ## Architecture
 
 ```
-Source Code (19 languages)
+Source Code (26 languages)
         │
         ▼
 ┌──────────────────┐
@@ -250,11 +250,11 @@ cargo test
 
 | Suite | Passed | Failed |
 |-------|--------|--------|
-| lib (unit) | 263 | 0 |
-| bin (unit) | 263 | 0 |
+| lib (unit) | 303 | 0 |
+| bin (unit) | 283 | 0 |
 | integration | 17 | 0 |
 | doc-tests | 2 | 0 |
-| **Total** | **545** | **0** |
+| **Total** | **605** | **0** |
 
 ## CLI Commands
 
@@ -280,7 +280,36 @@ cargo test
 
 ## Supported Languages
 
-Python, JavaScript, TypeScript, Rust, Go, Ruby, Java, PHP, Julia, Lua, Swift, Zig, Scala, Elixir, Dart, Haskell, C++, C, Markdown
+**26 languages** supported via tree-sitter parsers:
+
+| # | Language | Extensions |
+|---|----------|-----------|
+| 1 | Python | `.py` |
+| 2 | JavaScript | `.js`, `.jsx`, `.mjs`, `.cjs` |
+| 3 | TypeScript | `.ts`, `.tsx`, `.mts`, `.cts` |
+| 4 | Rust | `.rs` |
+| 5 | Go | `.go` |
+| 6 | Ruby | `.rb`, `.gemspec` |
+| 7 | Java | `.java` |
+| 8 | PHP | `.php` |
+| 9 | Julia | `.jl` |
+| 10 | Lua | `.lua` |
+| 11 | Swift | `.swift` |
+| 12 | Zig | `.zig` |
+| 13 | Scala | `.scala` |
+| 14 | Elixir | `.ex`, `.exs` |
+| 15 | Dart | `.dart` |
+| 16 | Haskell | `.hs`, `.lhs` |
+| 17 | C | `.c`, `.h` |
+| 18 | C++ | `.cpp`, `.hpp`, `.cc`, `.cxx` |
+| 19 | Markdown | `.md` |
+| 20 | SQL | `.sql` |
+| 21 | GraphQL | `.graphql`, `.gql` |
+| 22 | Vue | `.vue` |
+| 23 | CSS/SCSS | `.css`, `.scss`, `.sass` |
+| 24 | Bash | `.sh`, `.bash` |
+| 25 | Kotlin | `.kt`, `.kts` |
+| 26 | C# | `.cs` |
 
 ## SQLite Schema
 
