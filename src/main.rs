@@ -16,6 +16,8 @@ mod cli;
 mod compression;
 mod config;
 mod cross_language;
+mod cross_reference_strings;
+mod scope;
 mod daemon;
 mod database;
 mod format;
@@ -30,6 +32,7 @@ mod token_estimation;
 mod watcher;
 
 use std::sync::{Arc, Mutex};
+use rusqlite::params;
 
 use clap::Parser;
 use cli::{Cli, Commands, OutputFormat, OverrideSubcommand};
@@ -66,8 +69,9 @@ async fn main() -> anyhow::Result<()> {
             min_score,
             limit,
             like,
+            with_string_refs,
             format,
-        } => cmd_search(&db, &query, kind, language, min_score, limit, like, format)?,
+        } => cmd_search(&db, &query, kind, language, min_score, limit, like, with_string_refs, format)?,
         Commands::Neighbors { symbol, db, format } => cmd_neighbors(&db, &symbol, format)?,
         Commands::Impact { symbol, db, with_string_refs, format } => cmd_impact(&db, &symbol, with_string_refs, format)?,
         Commands::Graph { symbol, db, output } => {
@@ -222,6 +226,12 @@ fn cmd_init(root: &str, language: &str, db_path: &str) -> anyhow::Result<()> {
         println!("   Database:   {}", db_path);
     }
 
+    // ── Cross-reference: match string literals to symbols ──
+    let db_for_cross = IndexDb::open(db_path)?;
+    let mut cross = cross_reference_strings::CrossReferenceStrings::new(db_for_cross);
+    let string_ref_count = cross.run()?;
+    println!("   String refs:  {}", string_ref_count);
+
     Ok(())
 }
 
@@ -351,6 +361,13 @@ fn cmd_reindex(root: Option<&str>, language: &str, db_path: &str) -> anyhow::Res
             summary.languages.len()
         );
     }
+
+    // ── Cross-reference: match string literals to symbols ──
+    let db_for_cross = IndexDb::open(db_path)?;
+    let mut cross = cross_reference_strings::CrossReferenceStrings::new(db_for_cross);
+    let string_ref_count = cross.run()?;
+    println!("   String refs:  {}", string_ref_count);
+
     Ok(())
 }
 
@@ -387,6 +404,7 @@ fn cmd_search(
     min_score: f64,
     limit: usize,
     like_mode: bool,
+    with_string_refs: bool,
     output_format: OutputFormat,
 ) -> anyhow::Result<()> {
     let db = IndexDb::open(db_path)?;
@@ -520,6 +538,73 @@ fn cmd_search(
                 "results": items
             });
             print_formatted(&json, output_format);
+        }
+    }
+
+    // String references (optional)
+    if with_string_refs {
+        // exact > prefix > fuzzy 순서로 결과 정렬
+        // CASE WHEN으로 매칭 우선순위 부여
+        let mut stmt = db.conn.prepare(
+            r#"
+            SELECT sl.string_value, s.name, s.file_path, sl.context, psr.confidence
+            FROM potential_string_refs psr
+            JOIN string_literals sl ON psr.literal_id = sl.id
+            JOIN symbol s ON psr.target_symbol_id = s.id
+            WHERE sl.string_value LIKE ?1 OR s.name LIKE ?2
+            ORDER BY
+                -- 1. exact match 우선 (가장 높은 신뢰도)
+                CASE
+                    WHEN sl.string_value = ?3 THEN 0
+                    WHEN s.name = ?3 THEN 0
+                    ELSE 1
+                END,
+                -- 2. prefix match (시작 부분 일치)
+                CASE
+                    WHEN sl.string_value LIKE ?4 THEN 0
+                    WHEN s.name LIKE ?4 THEN 0
+                    ELSE 1
+                END,
+                -- 3. confidence 내림차순
+                psr.confidence DESC
+            "#,
+        );
+
+        if let Ok(mut stmt) = stmt {
+            let like_query = format!("%{}%", query);
+            let prefix_query = format!("{}%", query);
+            let rows = stmt.query_map(
+                params![like_query.clone(), like_query, query, prefix_query],
+                |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, String>(2)?,
+                        row.get::<_, Option<String>>(3)?.unwrap_or_default(),
+                        row.get::<_, f64>(4)?,
+                    ))
+                },
+            );
+
+            if let Ok(rows) = rows {
+                let string_refs: Vec<(String, String, String, String, f64)> =
+                    rows.collect::<Result<Vec<_>, _>>().unwrap_or_default();
+
+                if !string_refs.is_empty() {
+                    println!("\n🔗 String References — {} matches", string_refs.len());
+                    for (lit_value, sym_name, file_path, context, confidence) in &string_refs {
+                        let ctx_str = if context.is_empty() {
+                            String::new()
+                        } else {
+                            format!(" ({})", context)
+                        };
+                        println!(
+                            "  '{}' → {}:{} [confidence: {:.0}%]{}",
+                            lit_value, file_path, sym_name, confidence * 100.0, ctx_str
+                        );
+                    }
+                }
+            }
         }
     }
 

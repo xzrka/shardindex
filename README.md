@@ -75,6 +75,9 @@ Release binary: ~40MB.
 # Search symbols (fuzzy matching + PageRank scoring)
 shardindex search "auth login" --limit 10
 
+# Search with string references (dynamic refs via string literals)
+shardindex search "User" --with-string-refs --limit 10
+
 # Show neighbors (callers/callees) of a symbol
 shardindex neighbors auth.login
 
@@ -313,9 +316,9 @@ cargo test
 
 ## SQLite Schema
 
-**Version 4** — Tables: `project`, `files`, `symbols`, `references`, `checksums`, `dirty_queue`, `versions`, `symbol_rank`, `agent_cache`, `overrides`
+**Version 5** — Tables: `project`, `files`, `symbols`, `references`, `checksums`, `dirty_queue`, `versions`, `symbol_rank`, `agent_cache`, `overrides`, `string_literals`, `potential_string_refs`
 
-Key indexes: qualified name (unique), file path (unique), Blake3 hash, symbol kind, reference caller/callee, dirty queue priority.
+Key indexes: qualified name (unique), file path (unique), Blake3 hash, symbol kind, reference caller/callee, dirty queue priority, string literal value.
 
 ## Dependencies
 
